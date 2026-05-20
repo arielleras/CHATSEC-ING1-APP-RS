@@ -1,30 +1,21 @@
-import time
-from interface import *
-from sender import SenderBroker
-from receiver import ReceiverBroker
+import tkinter as tk
+
+from interface import ChatInterface, default_window_size
 
 
-class Chatroom():
-
-    # TODO memory leak
+class Chatroom:
     def on_closing(self):
-        # check if saving
-        # if not:
-        # listener.discard_channel()
-        self.root.destroy()
         self.app.disconnect_from_server()
+        self.root.destroy()
 
-    def run(self, user):
-        self.root = Tk()
-        self.root.title("Talky Walky")
+    def run(self, user, client):
+        self.root = tk.Tk()
+        self.root.title("CHATSEC")
         self.root.geometry(default_window_size)
-        self.root.minsize(360, 200)
+        self.root.minsize(720, 460)
 
-        # start application
-        self.app = ChatInterface(self.root, fullname=user)
+        self.app = ChatInterface(self.root, fullname=user, client=client)
         self.app.default_format()
 
-        # root is your root window
-        self.root.protocol('WM_DELETE_WINDOW', self.on_closing)
-
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.root.mainloop()

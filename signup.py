@@ -1,167 +1,150 @@
-from tkinter import Label, Entry, Button, Tk, Radiobutton, IntVar, StringVar, Toplevel, Canvas, X
-from ldap_server import LdapService
-from CA.ca_client import CaClient, handle_cert_local
-from chat import *
-import time
+import threading
+import tkinter as tk
+from tkinter import ttk
+
+from chat import Chatroom
+from chatsec_client import ChatsecClient, HOST, PORT
 
 
 class SignupPage:
+    def __init__(self):
+        self.client = None
 
     def Register(self, event=None):
-        if self.USERNAME.get() == "" or self.PASSWORD.get() == "" or self.EMAIL.get() == "" or self.UID.get() == "":
-            self.error_label.config(
-                text="Please complete the required field!", fg="#0F0F0F", bg="#33FF33")
+        username = self.USERNAME.get().strip()
+        password = self.PASSWORD.get()
+        confirm = self.CONFIRM_PASSWORD.get()
 
-        else:
-            # user object
-            user_obj = {
-                'username': self.USERNAME.get(),
-                'password': self.PASSWORD.get(),
-                'email': self.EMAIL.get(),
-                'gender': self.GENDER.get(),
-                'group_id': 500,  # default gid
-                'uid': self.UID.get()  # student card
-            }
-            print(user_obj)
-            # instantiate the ldap service
-            # ldap_s = LdapService(admin_pwd="<ur_admin_pwd>")
-            ldap_s = LdapService(admin_pwd="<ur_admin_pwd>")
-            result = ldap_s.register(user_obj)
+        if not username or not password:
+            self.show_status("Username et mot de passe obligatoires.", error=True)
+            return
+        if len(username) < 2:
+            self.show_status("Le username doit contenir au moins 2 caracteres.", error=True)
+            return
+        if len(password) < 4:
+            self.show_status("Le mot de passe doit contenir au moins 4 caracteres.", error=True)
+            return
+        if password != confirm:
+            self.show_status("Les mots de passe ne correspondent pas.", error=True)
+            return
 
-            if not result:
-                # HomeWindow()
-                # self.USERNAME.set("")
-                # self.PASSWORD.set("")
-                # self.EMAIL.set("")
-                # self.GENDER.set("")
-                # self.UID.set("")
+        self.set_busy(True)
+        self.show_status("Creation du compte...")
+        threading.Thread(target=self._signup_worker, args=(username, password), daemon=True).start()
 
-                self.error_label.config(
-                    text="Sucess", fg="#33FF33", bg="#336633")
+    def _signup_worker(self, username, password):
+        signup_client = ChatsecClient()
+        signup_result = signup_client.signup(username, password)
+        if signup_result.get("status") != "OK":
+            self.root.after(0, lambda: self._finish_signup(username, None, signup_result))
+            return
 
-                time.sleep(1)
+        client = ChatsecClient()
+        login_result = client.login(username, password)
+        self.root.after(0, lambda: self._finish_signup(username, client, login_result))
 
-                # handle certificate
-                client = CaClient(self.USERNAME)
-                client.connect()
-                client.request_cert()
-                result = handle_cert_local('CA/client_cert.pem')
-                if result:
-                    self.HomeWindow()
-                else:
-                    self.error_label.config(
-                        text="Error occured while obtaining SSL certificate", fg="#0F0F0F", bg="#33FF33")
+    def _finish_signup(self, username, client, result):
+        self.set_busy(False)
+        if result.get("status") == "OK":
+            self.client = client
+            self.HomeWindow(username)
+            return
 
-            else:
-                self.error_label.config(
-                    text=result, fg="#0F0F0F", bg="#33FF33")
+        if client:
+            client.close()
+        self.show_status(result.get("message", "Inscription impossible."), error=True)
 
-    def HomeWindow(self):
-        username = self.USERNAME.get()
-        self.root.withdraw()
-        c = Chatroom()
-        c.run(user=username)
+    def HomeWindow(self, username=None):
+        username = username or self.USERNAME.get().strip()
+        self.root.destroy()
+        Chatroom().run(user=username, client=self.client)
 
     def navigate_to_login(self):
-        self.root.withdraw()
+        self.root.destroy()
         from login import LoginPage
-        l = LoginPage()
-        l.main()
+
+        LoginPage().main()
 
     def main(self):
-        # main frame
-        self.root = Tk()
-        self.root.geometry('500x450')
-        self.root.title("Registration Form")
+        self.root = tk.Tk()
+        self.root.geometry("540x420")
+        self.root.minsize(500, 380)
+        self.root.title("CHATSEC - Inscription")
+        self.root.configure(bg="#101418")
 
-        # data binding
-        self.USERNAME = StringVar(self.root)
-        self.EMAIL = StringVar(self.root)
-        self.PASSWORD = StringVar(self.root)
-        self.GENDER = StringVar(self.root)
-        self.UID = StringVar(self.root)
+        self.USERNAME = tk.StringVar(self.root)
+        self.PASSWORD = tk.StringVar(self.root)
+        self.CONFIRM_PASSWORD = tk.StringVar(self.root)
 
-        # Registration form
-        label_0 = Label(self.root, text="Registration form",
-                        width=20, font=("bold", 20))
-        label_0.place(x=90, y=53)
+        self._configure_style()
 
-        # FullName label & entry
-        label_1 = Label(self.root, text="Username *",
-                        width=20, font=("bold", 10))
-        label_1.place(x=80, y=130)
-        entry_1 = Entry(self.root, textvariable=self.USERNAME)
-        entry_1.place(x=240, y=130)
+        shell = ttk.Frame(self.root, style="App.TFrame", padding=28)
+        shell.pack(fill="both", expand=True)
+        shell.columnconfigure(0, weight=1)
 
-        # self.EMAIL label & entry
-        label_2 = Label(self.root, text="Email *",
-                        width=20, font=("bold", 10))
-        label_2.place(x=68, y=180)
-        entry_2 = Entry(self.root, textvariable=self.EMAIL)
-        entry_2.place(x=240, y=180)
+        ttk.Label(shell, text="Creer un compte", style="Title.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            shell,
+            text="Le compte est cree sur le serveur CHATSEC local",
+            style="Subtitle.TLabel",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 24))
 
-        # self.PASSWORD label & entry
-        label_2_ = Label(self.root, text="Password *",
-                         width=20, font=("bold", 10))
-        label_2_.place(x=68, y=230)
-        entry_2_ = Entry(self.root, textvariable=self.PASSWORD, show="*")
-        entry_2_.place(x=240, y=230)
+        form = ttk.Frame(shell, style="Panel.TFrame", padding=18)
+        form.grid(row=2, column=0, sticky="nsew")
+        form.columnconfigure(1, weight=1)
 
-        # self.GENDER label & radio-box
-        label_3 = Label(self.root, text="Gender",
-                        width=20, font=("bold", 10))
-        label_3.place(x=70, y=280)
+        ttk.Label(form, text="Username", style="Field.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 12))
+        username_entry = ttk.Entry(form, textvariable=self.USERNAME)
+        username_entry.grid(row=0, column=1, sticky="ew", pady=6)
 
-        optionMale = Radiobutton(self.root, text="Male", padx=5, variable=self.GENDER,
-                                 value=1)
-        optionMale.place(x=235, y=280)
-        optionFemale = Radiobutton(self.root, text="Female", padx=20,
-                                   variable=self.GENDER, value=2)
-        optionFemale.place(x=290, y=280)
+        ttk.Label(form, text="Mot de passe", style="Field.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 12))
+        password_entry = ttk.Entry(form, textvariable=self.PASSWORD, show="*")
+        password_entry.grid(row=1, column=1, sticky="ew", pady=6)
 
-        # Age label & entry
-        label_4 = Label(self.root, text="Student ID *",
-                        width=20, font=("bold", 10))
-        label_4.place(x=70, y=330)
-        entry_3 = Entry(self.root, textvariable=self.UID)
-        entry_3.place(x=240, y=330)
+        ttk.Label(form, text="Confirmation", style="Field.TLabel").grid(row=2, column=0, sticky="w", padx=(0, 12))
+        confirm_entry = ttk.Entry(form, textvariable=self.CONFIRM_PASSWORD, show="*")
+        confirm_entry.grid(row=2, column=1, sticky="ew", pady=6)
 
-        # Error label
-        self.error_label = Label(self.root, width=60, font=("bold", 8))
-        self.error_label.place(x=65, y=370)
+        self.error_label = ttk.Label(form, text=f"Serveur: {HOST}:{PORT}", style="Status.TLabel")
+        self.error_label.grid(row=3, column=0, columnspan=2, sticky="w", pady=(10, 0))
 
-        # Submit button
-        btn = Button(self.root, text='Submit', width=20, command=self.Register, bg='brown',
-                     fg='white')
-        btn.place(x=180, y=400)
+        actions = ttk.Frame(shell, style="App.TFrame")
+        actions.grid(row=3, column=0, sticky="ew", pady=(18, 0))
+        actions.columnconfigure(0, weight=1)
 
-        # Login button
-        btn_2 = Button(self.root, text='Login', width=10, command=self.navigate_to_login, bg='#0F0F0F',
-                       fg='#33FF33', borderwidth=0, font="Verdana 10 underline")
-        btn_2.place(x=350, y=400)
+        self.login_button = ttk.Button(actions, text="Connexion", command=self.navigate_to_login)
+        self.login_button.grid(row=0, column=0, sticky="w")
+        self.signup_button = ttk.Button(actions, text="Creer le compte", command=self.Register, style="Accent.TButton")
+        self.signup_button.grid(row=0, column=1, sticky="e")
 
-        # theme color hacker
-        self.root.config(bg="#0F0F0F")
-        label_0.config(bg="#0F0F0F", fg="#33FF33")
-        label_1.config(bg="#0F0F0F", fg="#33FF33")
-        label_2.config(bg="#0F0F0F", fg="#33FF33")
-        label_2_.config(bg="#0F0F0F", fg="#33FF33")
-        label_3.config(bg="#0F0F0F", fg="#33FF33")
-        label_4.config(bg="#0F0F0F", fg="#33FF33")
-        entry_1.config(bg="#0F0F0F", fg="#33FF33", insertbackground="#33FF33")
-        entry_3.config(bg="#0F0F0F", fg="#33FF33", insertbackground="#33FF33")
-        entry_2.config(bg="#0F0F0F", fg="#33FF33", insertbackground="#33FF33")
-        entry_2_.config(bg="#0F0F0F", fg="#33FF33", insertbackground="#33FF33")
-        optionFemale.config(bg="#0F0F0F", fg="#33FF33")
-        optionMale.config(bg="#0F0F0F", fg="#33FF33")
-        btn.config(bg="#0F0F0F", fg="#FFFFFF",
-                   activebackground="#0F0F0F", activeforeground="#FFFFFF")
-        self.error_label.config(bg="#0F0F0F")
-
-        # it is use for display the registration form on the window
+        confirm_entry.bind("<Return>", self.Register)
+        username_entry.focus_set()
         self.root.mainloop()
-        print("registration form  seccussfully created...")
+
+    def show_status(self, message, error=False):
+        style = "Error.TLabel" if error else "Status.TLabel"
+        self.error_label.configure(text=message, style=style)
+
+    def set_busy(self, busy):
+        state = "disabled" if busy else "normal"
+        self.signup_button.configure(state=state)
+        self.login_button.configure(state=state)
+
+    def _configure_style(self):
+        style = ttk.Style(self.root)
+        style.theme_use("clam")
+        style.configure("App.TFrame", background="#101418")
+        style.configure("Panel.TFrame", background="#182028", borderwidth=1, relief="solid")
+        style.configure("Title.TLabel", background="#101418", foreground="#e8f0f2", font=("Segoe UI", 21, "bold"))
+        style.configure("Subtitle.TLabel", background="#101418", foreground="#91a0a8", font=("Segoe UI", 10))
+        style.configure("Field.TLabel", background="#182028", foreground="#d7e0e4", font=("Segoe UI", 10))
+        style.configure("Status.TLabel", background="#182028", foreground="#7dd3a7", font=("Segoe UI", 9))
+        style.configure("Error.TLabel", background="#182028", foreground="#ff9f9f", font=("Segoe UI", 9))
+        style.configure("TEntry", padding=6)
+        style.configure("TButton", padding=(12, 7))
+        style.configure("Accent.TButton", background="#2aa36b", foreground="#ffffff")
+        style.map("Accent.TButton", background=[("active", "#35b779"), ("disabled", "#34443c")])
 
 
-# s = SignupPage()
-# s.main()
+if __name__ == "__main__":
+    SignupPage().main()

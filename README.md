@@ -1,149 +1,178 @@
-# Python-Secure-Chatroom
+# CHATSEC - Secure Chatroom
 
-## About
+CHATSEC est une application de messagerie sécurisée en Python. La version actuelle du projet n'utilise plus RabbitMQ ni LDAP pour le flux principal : elle repose sur un serveur TCP/TLS local, une base SQLite et une interface client Tkinter remise au propre pour un usage sous Windows 11.
 
-A chatroom application written in Python using TKinter & based on RabbitMQ broker using open-LDAP for authentication
+## Fonctionnalités
 
-## Learning objectives
+- Inscription et connexion utilisateur via le serveur local.
+- Stockage des comptes dans SQLite avec hash de mot de passe `bcrypt`.
+- Transport client/serveur en TLS avec certificat auto-signé.
+- Messages privés chiffrés côté client avec RSA.
+- Liste des utilisateurs connectés en temps réel.
+- Interface client compatible Windows 11 : écrans connexion/inscription, thème sombre, zone de chat, menu, sauvegarde du journal et réglage de la taille de fenêtre.
 
-When we've completed this Code Pattern, you will understand how to:
+## Interface Windows 11
 
-- **Objective 1**: LDAP server configuration, helping us manage user authentication.
-- **Objective 2**: How to set up an authority server that accepts certification requests, creates them, then signs them in order to verify their state
-- **Objective 3**: How to use RabbitMQ for chatting, which is an enterprise level tool.
+L'interface principale est lancée par `main.py`. Elle conserve le parcours classique du projet, mais avec une présentation plus moderne et plus claire :
 
-## Flow
+- splash screen au démarrage ;
+- écran de connexion séparé ;
+- écran d'inscription séparé ;
+- interface de chat avec liste des utilisateurs connectés à gauche ;
+- zone de conversation centrale ;
+- champ de saisie et bouton d'envoi visibles en bas ;
+- menus pour sauvegarder le journal, effacer la conversation, changer le thème, changer la police et gérer la taille de fenêtre.
 
-When thinking of chatroom capabilities, our elegant application you will need the following set of features:
+Le thème par défaut est sombre pour mieux coller à l'esthétique Windows 11 et rester lisible pendant les tests.
 
-1- **Client side :**
-<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;. Register -> Enter credentials (first time)
-<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;. Login / block authentication (redirect)
-<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;. View all active users
-<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;. Select user-> chat area opened / Select room
-<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;. Using RSA technique  to encrypt/decrypt all messages sent between clients.
-<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;. See message date & time
-<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;. Disconnect && quit application
+## Architecture
 
-2- **Server side :**
-
-- Register user : 
-  <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;. Add new user to the active directory via LDAP 
-  <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;. Create PKI -> get a x509 certificaton via authority server
-  <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;. Start communication with the chat/Rabbitmq server
-- Login user :
-  <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;. Enter credentials -> verify user in the active directory via LDAP
-  <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;. Verify the signature via authority server
-- Chatting :
-  <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;. Encrypt /decrypt messages while exchanging them between clients
-
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ![Demo architecture](https://i.ibb.co/zx75pzD/arch.png)
-
-![Demo encryption](https://github.com/khalilMejri/TalkyWalky/blob/master/docs/Annotation%202020-01-23%20214852.png)
-
-
-## Features:
-
-- Save a log of the chat
-- Clear the chat history
-- Emoji button with various emojies to choose from and use
-- Change your username
-  - revert to default username
-  - view your username history
-  - clear your username history
-- Style Customization
-  - choose a custom font
-  - choose from 6 different color themes
-  - revert to default layout
-- Select a default window size of program for everytime it opens
-  - return to the default window size whenever
-
-## Dependencies
-
-- [RabbitMQ](https://github.com/khalilMejri/TalkyWalky): Messaging Broker based on AMQP protocol
-- [pycryptodome](https://github.com/khalilMejri/TalkyWalky): well-documented python library for encryption/decryption..
-- [OpenSSL](https://github.com/khalilMejri/TalkyWalky): a python package that provides a high-level interface to the functions in the OpenSSL library such as X509 certs generation.
-- [Tkinter](https://github.com/khalilMejri/TalkyWalky): Standard Python interface to the Tk GUI toolkit.
-- [cryptography](https://github.com/khalilMejri/TalkyWalky): python library for X509 certs with good API
-- [OpenLDAP](https://github.com/khalilMejri/TalkyWalky): is an implementation under ubuntu for LDAP protocol
-- [Pika](https://github.com/khalilMejri/TalkyWalky): Rabbitmq python client.
-
-## Watch the Video
-
-[![](https://i.ibb.co/SvDjbvZ/Annotation-2020-01-24-005326.png)](https://drive.google.com/open?id=1h2x8_4kPlm4656Bjh0Pp3KeyIaOd_f4f)
-
-## Setup
-
-You have multiple options to setup your own instance:
-
-- [Run it locally](#run-locally)
-
-### 1. Open LDAP server in your machine
-
-Clone the `TalkyWaly` repository locally. In a terminal, run:
-
-```bash
-$ git clone https://github.com/khalilmejri/talkywalky.git
+```text
+Client Tkinter
+  main.py -> login.py / signup.py -> chat.py -> interface.py
+        |
+        | TLS + JSON framed messages
+        v
+Serveur CHATSEC
+  server.py -> database.py -> chatsec.db
 ```
 
-Our application would have the following folder structure:
+Fichiers principaux :
 
-```bash
- TalkyWalky/
-   └── CA/
-     ├── ...
-     ├── ca_server.py
-     ├── ...
-     └── certificate_ca.pem
-   ├── ...
-   ├── server.py
-   ├── main.py
-   ├── chat.py
-   ├── requirements.txt
-   ├── ...
-   └── client_cert.pem
+- `server.py` : serveur TCP/TLS sur `127.0.0.1:5555`.
+- `database.py` : création et accès à la base SQLite `chatsec.db`.
+- `chatsec_client.py` : client réseau commun aux interfaces.
+- `main.py` : lanceur principal avec splash screen puis interface Windows 11.
+- `login.py` / `signup.py` : authentification et création de compte.
+- `interface.py` : interface de chat principale.
+- `chatsec_gui.py` : client Tkinter direct, utile pour tester rapidement une deuxième fenêtre.
+- `generate_cert.py` : génération de `server.crt` et `server.key`.
 
+## Prérequis Windows 11
+
+- Windows 11.
+- Python 3.12 ou plus récent installé et disponible dans PowerShell avec la commande `python`.
+- Les dépendances Python du fichier `requirements.txt`.
+
+Vérifier Python :
+
+```powershell
+python --version
 ```
 
-**Installation**
+Installer les dépendances :
 
-```bash
-# install node modules for the API
-$ pip install -r requirements.txt --no-index --find-links file:///tmp/packages
+```powershell
+python -m pip install -r requirements.txt
 ```
 
-### 2. Run rabbitMQ service
+Option recommandée si tu veux isoler le projet :
 
-```bash
-$ systemctl service rabbitmq start
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
 
-### 3. Create an Instance of Messaging-server
+## Premier lancement
 
-```bash
-$ ./server.py
+Depuis la racine du projet :
+
+```powershell
+cd C:\Users\vidav\Documents\EFREI\Ing1\Rattrapage_UE\CHATSEC-ING1-APP-RS
 ```
 
-### 4. Create an Instance of Authority-server
+Si les fichiers TLS n'existent pas encore, génère le certificat serveur :
 
-```bash
-$ ./CA/ca_server.py
+```powershell
+python generate_cert.py
 ```
 
-**Get your ldap domain string. Almost all your servers need it; keep it safe!**
+Cette commande crée :
 
-### 5. Run
+- `server.crt`
+- `server.key`
 
-Finally, start the main app enjoy :)
+## Lancer le serveur
 
-```bash
-# start app client
-$ ./main.py
+Ouvre un premier terminal PowerShell dans le dossier du projet, puis lance :
+
+```powershell
+python server.py
 ```
 
-You can now connect to `ldap:<ur_ldap_host_address>:389` to start chatting.
+Le serveur écoute sur :
 
-### Refs
+```text
+127.0.0.1:5555
+```
 
-[http://www.grotan.com/ldap/python-ldap-samples.html](http://www.grotan.com/ldap/python-ldap-samples.html) <br/>
-[https://turbogears.readthedocs.io/en/latest/cookbook/ldap-auth.html](https://turbogears.readthedocs.io/en/latest/cookbook/ldap-auth.html)
+Garde ce terminal ouvert pendant l'utilisation de l'application.
+
+## Lancer l'interface client principale
+
+Ouvre un deuxième terminal PowerShell dans le même dossier, puis lance :
+
+```powershell
+python main.py
+```
+
+Ce lanceur affiche le splash screen, puis l'interface Windows 11 de connexion/inscription. Après connexion, l'interface de chat s'ouvre automatiquement.
+
+## Lancer plusieurs clients
+
+Pour tester une conversation, lance une deuxième interface client dans un autre terminal :
+
+```powershell
+python main.py
+```
+
+Tu peux aussi ouvrir le client direct, plus simple pour les tests rapides :
+
+```powershell
+python chatsec_gui.py
+```
+
+Exemple de test :
+
+1. Terminal 1 : `python server.py`
+2. Terminal 2 : `python main.py`
+3. Terminal 3 : `python main.py`
+4. Crée ou connecte deux comptes différents.
+5. Sélectionne l'autre utilisateur dans la liste des connectés.
+6. Envoie un message.
+
+## Commandes utiles
+
+Vérifier que les fichiers Python compilent :
+
+```powershell
+python -m py_compile server.py main.py login.py signup.py chat.py interface.py chatsec_client.py
+```
+
+Réinitialiser les certificats TLS :
+
+```powershell
+Remove-Item server.crt, server.key
+python generate_cert.py
+```
+
+Réinitialiser la base locale :
+
+```powershell
+Remove-Item chatsec.db
+python server.py
+```
+
+## Notes sur l'ancienne version
+
+Les anciens fichiers liés à RabbitMQ, LDAP et CA sont encore présents dans le dépôt pour historique ou comparaison, mais ils ne sont plus nécessaires pour lancer l'application actuelle.
+
+Le flux actuel est :
+
+```text
+python server.py
+python main.py
+```
+
+Il n'est plus nécessaire de lancer RabbitMQ, OpenLDAP ou `CA/ca_server.py` pour utiliser l'interface client actuelle.

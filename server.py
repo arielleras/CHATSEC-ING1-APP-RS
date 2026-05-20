@@ -292,7 +292,14 @@ def start_server():
     try:
         while True:
             # Accepter une nouvelle connexion TLS
-            conn, addr = tls_sock.accept()
+            try:
+                conn, addr = tls_sock.accept()
+            except ssl.SSLError as e:
+                log_event("WARNING", "TLS_HANDSHAKE_ECHEC", str(e))
+                continue
+            except OSError as e:
+                log_event("ERROR", "ACCEPT_ECHEC", str(e))
+                continue
             log_event("INFO", "NOUVELLE_CONNEXION", f"addr={addr}")
 
             # Lancer un thread dédié pour ce client
