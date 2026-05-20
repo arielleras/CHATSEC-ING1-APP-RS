@@ -1,132 +1,309 @@
-import pika
-from Crypto.PublicKey import RSA
-from encryption_decryption import rsa_encrypt, rsa_decrypt, get_rsa_key
+"""
+server.py
+---------
+Serveur TCP + TLS de CHATSEC.
 
-class Server:
-    def __init__(self):
-        self.connected_users = {}
-        self.rooms={'room1':[],'room2':[],'room3':[],'room4':[]}
-    def connect(self):
-        self.connection = pika.BlockingConnection(
-        pika.ConnectionParameters(host='localhost'))
-        self.channel = self.connection.channel()
-        self.receive()
+Rôle :
+  - Écoute les connexions sur le port 5555
+  - Enveloppe chaque connexion avec TLS (certificat auto-signé)
+  - Gère chaque client dans un thread séparé
+  - Route les messages chiffrés entre clients (sans jamais les déchiffrer)
+  - Logue tous les événements dans SQLite via database.py
 
-    def receive(self):
-        self.channel.queue_declare(queue='main_queue')
-        def callback(ch, method, properties, body):
-            # Received a Message
-            
-            tokens = body.decode().split('::')
-            action = tokens[0]
-            tokens[1] =  'amq.'+tokens[1]
-            print("[+] Received this ",body)
-            self.handleAction(action,tokens[1:])
-            ch.basic_ack(delivery_tag=method.delivery_tag)
+Lancement :
+  python server.py
 
-        self.channel.basic_consume(queue='main_queue', on_message_callback=callback)
-        print('Server Started !! Listening')
-        self.channel.start_consuming()
-        
-    def handleAction(self,action,tokens):
-        if action == 'login':
-            # User send this action + his queue name + his name
-            queue_name = tokens[0]
-            user_name= tokens[1]
-            pubkey = tokens[2].encode()
-            self.connected_users.setdefault(queue_name,{'username': user_name, 'pubkey': pubkey})
-            self.send(queue_name,"connected::")
-            for queue in self.connected_users.keys():
-                if queue != queue_name:
-                    self.send(queue,"connectedUsers::"+','.join([obj['username'] for obj in self.connected_users.values()]))
-        elif action == 'quit':
-            # User send his queue name
-            queue_name = tokens[0]
-            if queue_name in self.connected_users.keys():
-                del self.connected_users[queue_name]
-                self.send(queue_name,"disconnected::")
-                for queue in self.connected_users.keys():
-                    if queue != queue_name:
-                        self.send(queue,"connectedUsers::"+','.join([obj['username'] for obj in self.connected_users.values()]))
-                return True
+Prérequis :
+  1. Avoir lancé generate_cert.py (produit server.crt + server.key)
+  2. Avoir installé les dépendances (pip install -r requirements.txt)
+"""
+
+import socket
+import ssl
+import threading
+import json
+
+from database import init_db, log_event, get_user, update_public_key, get_all_usernames
+
+# ── Configuration ─────────────────────────────────────────────────
+
+HOST = "0.0.0.0"   # écoute sur toutes les interfaces réseau
+PORT = 5555
+CERT_FILE = "server.crt"
+KEY_FILE  = "server.key"
+
+# Dictionnaire des clients connectés : { username: ssl_socket }
+# Partagé entre tous les threads → protégé par un verrou
+connected_clients: dict[str, ssl.SSLSocket] = {}
+clients_lock = threading.Lock()
+
+# ── Envoi d'un message JSON ───────────────────────────────────────
+
+def send_json(sock: ssl.SSLSocket, data: dict):
+    """
+    Sérialise un dict en JSON et l'envoie sur le socket.
+    On préfixe avec la taille du message (4 octets) pour savoir
+    où s'arrête chaque message (framing).
+    """
+    raw = json.dumps(data).encode("utf-8")
+    # Préfixe : taille sur 4 octets, big-endian
+    size = len(raw).to_bytes(4, byteorder="big")
+    sock.sendall(size + raw)
+
+def recv_json(sock: ssl.SSLSocket) -> dict | None:
+    """
+    Lit exactement un message JSON depuis le socket.
+    Retourne None si la connexion est fermée.
+    """
+    try:
+        # 1. Lire les 4 premiers octets = taille du message
+        raw_size = _recv_exact(sock, 4)
+        if raw_size is None:
+            return None
+        size = int.from_bytes(raw_size, byteorder="big")
+
+        # 2. Lire exactement 'size' octets = le message
+        raw = _recv_exact(sock, size)
+        if raw is None:
+            return None
+
+        return json.loads(raw.decode("utf-8"))
+    except Exception:
+        return None
+
+def _recv_exact(sock: ssl.SSLSocket, n: int) -> bytes | None:
+    """Lit exactement n octets depuis le socket."""
+    data = b""
+    while len(data) < n:
+        chunk = sock.recv(n - len(data))
+        if not chunk:
+            return None
+        data += chunk
+    return data
+
+# ── Gestion d'un client ───────────────────────────────────────────
+
+def handle_client(conn: ssl.SSLSocket, addr: tuple):
+    """
+    Fonction exécutée dans un thread pour chaque client connecté.
+    Gère toute la session : login, échange de messages, déconnexion.
+    """
+    username = None
+    log_event("INFO", "CONNEXION_ENTREE", f"addr={addr}")
+
+    try:
+        while True:
+            msg = recv_json(conn)
+
+            # Connexion fermée côté client
+            if msg is None:
+                break
+
+            action = msg.get("action")
+
+            # ── Inscription ───────────────────────────────────────
+            if action == "SIGNUP":
+                _handle_signup(conn, msg)
+
+            # ── Connexion ─────────────────────────────────────────
+            elif action == "LOGIN":
+                username = _handle_login(conn, msg, addr)
+
+            # ── Dépôt de clé publique RSA ─────────────────────────
+            elif action == "UPLOAD_KEY":
+                _handle_upload_key(conn, msg, username)
+
+            # ── Demande de clé publique d'un autre user ───────────
+            elif action == "GET_KEY":
+                _handle_get_key(conn, msg)
+
+            # ── Envoi d'un message chiffré à un autre user ────────
+            elif action == "MESSAGE":
+                _handle_message(conn, msg, username)
+
+            # ── Liste des utilisateurs connectés ──────────────────
+            elif action == "LIST_USERS":
+                _handle_list_users(conn, username)
+
+            # ── Action inconnue ───────────────────────────────────
             else:
-                self.send(queue_name,"invalid::")
-                return False
-        elif action == 'getConnectedUsers':
-            # return all connected Users names
-            queue_name = tokens[0]
-            if( queue_name in self.connected_users.keys()):
+                send_json(conn, {"status": "ERROR", "message": "Action inconnue"})
+                log_event("WARNING", "ACTION_INCONNUE", f"action={action}, user={username}")
 
-                usersNames = ','.join([obj['username'] for obj in self.connected_users.values()])
-                self.send(queue_name,"connectedUsers::"+usersNames)
-                return True
-            else:
-                self.send(queue_name,"notfound::")
-                return False
-        elif action == 'getUserData':
-            # return a user queue name 
-            queue_name = tokens[0]
-            demanded_user_name = tokens[1]
-            for key,val in self.connected_users.items():
-                if val['username'] == demanded_user_name:
-                    self.send(key,"chosen::"+self.connected_users[queue_name]['username']+'::'+self.connected_users[queue_name]['pubkey'].decode()+'::'+queue_name)
-                    self.send(queue_name,"username::"+str(val['username'])+"::"+str(key)+"::"+val['pubkey'].decode())
-                    return True
-            self.send(queue_name,"notfound::")
-            return False
-        elif action == 'getRooms':
-            queue_name = tokens[0]
-            if(queue_name in self.connected_users.keys()):
-                self.send(queue_name,"rooms::"+','.join(self.rooms.keys()))
-                return True
-            self.send(queue_name,'notfound::')
-            return False
-        elif action == 'joinRoom':
-            queue_name = tokens[0]
-            room = tokens[1]
-            if(queue_name in self.connected_users.keys()):
-                self.rooms[room].append(queue_name)
-                self.send(queue_name,"joinedRoom::"+room+'::')
-                return True
-            self.send(queue_name,"notfound::")
-            return False
-        elif action == 'sendToRoom':
-            queue_name = tokens[0]
-            user_name = self.connected_users[queue_name]['username']
-            room = tokens[1]
-            # We decrypted the message using the room's private key first
-            roomPrivateKey = get_rsa_key("./chatrooms-keys/"+room).export_key()
-            message = rsa_decrypt(tokens[2].encode(), roomPrivateKey).decode()
-            if(queue_name in self.connected_users.keys() and queue_name in self.rooms[room]):
-                for queue in self.rooms[room]:
-                    # Get pubkey for each user
-                    destPubKey = self.connected_users[queue]['pubkey']
-                    # Encrypt the message with user's public key
-                    print("This is the pubKey of " + self.connected_users[queue]['username'] + ": "+destPubKey.decode()[:40])
-                    encrypted_msg = rsa_encrypt(message, destPubKey)
-                    self.send(queue,'roomReceive::'+room+'::'+user_name+'::'+encrypted_msg.decode())
-                return True
-            else :
-                self.send(queue_name,'notfound::')
-                return False
-        elif action == 'leaveRoom':
-            queue_name = tokens[0]
-            room = tokens[1]
-            if(queue_name in self.connected_users.keys() and queue_name in self.rooms[room]):
-                self.rooms[room].remove(queue_name)
-                self.send(queue_name,"left::"+room+'::')
-                return True
-            self.send(queue_name,"notfound::")
-            return False
-    def send(self,client_queue,msg):
-        self.channel.exchange_declare(exchange='users_exchange', exchange_type='direct')
-        self.channel.basic_publish(
-            exchange='users_exchange',
-            routing_key=client_queue[4:],
-            body=msg,
-            properties=pika.BasicProperties(
-                delivery_mode=2,  # make message persistent
-            ))
+    except Exception as e:
+        log_event("ERROR", "ERREUR_CLIENT", f"user={username}, err={e}")
 
-s = Server()
-s.connect()
+    finally:
+        # Nettoyage : retirer le client de la liste des connectés
+        if username:
+            with clients_lock:
+                connected_clients.pop(username, None)
+            log_event("INFO", "DECONNEXION", f"user={username}, addr={addr}")
+            _broadcast_user_list()  # mettre à jour la liste chez tous
+        conn.close()
+
+# ── Handlers des actions ──────────────────────────────────────────
+
+def _handle_signup(conn, msg):
+    """Inscription d'un nouvel utilisateur."""
+    import bcrypt
+    from database import create_user
+
+    username = msg.get("username", "").strip()
+    password = msg.get("password", "")
+
+    if not username or not password:
+        send_json(conn, {"status": "ERROR", "message": "Username ou mot de passe vide"})
+        return
+
+    # Hash du mot de passe avec bcrypt (sel généré automatiquement)
+    password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+    if create_user(username, password_hash):
+        send_json(conn, {"status": "OK", "message": "Compte créé"})
+        log_event("INFO", "SIGNUP_OK", f"user={username}")
+    else:
+        send_json(conn, {"status": "ERROR", "message": "Username déjà pris"})
+        log_event("WARNING", "SIGNUP_ECHEC", f"user={username} déjà existant")
+
+
+def _handle_login(conn, msg, addr) -> str | None:
+    """Authentification. Retourne le username si succès, None sinon."""
+    import bcrypt
+
+    username = msg.get("username", "").strip()
+    password = msg.get("password", "")
+
+    user = get_user(username)
+
+    # Vérification : utilisateur existe + mot de passe correct
+    if user and bcrypt.checkpw(password.encode(), user["password_hash"].encode()):
+        # Ajouter aux clients connectés
+        with clients_lock:
+            connected_clients[username] = conn
+
+        send_json(conn, {"status": "OK", "message": "Connecté"})
+        log_event("INFO", "LOGIN_OK", f"user={username}, addr={addr}")
+        _broadcast_user_list()  # notifier tout le monde
+        return username
+    else:
+        send_json(conn, {"status": "ERROR", "message": "Identifiants incorrects"})
+        log_event("WARNING", "LOGIN_ECHEC", f"user={username}, addr={addr}")
+        return None
+
+
+def _handle_upload_key(conn, msg, username):
+    """Le client dépose sa clé publique RSA sur le serveur."""
+    if not username:
+        send_json(conn, {"status": "ERROR", "message": "Non authentifié"})
+        return
+
+    public_key = msg.get("public_key", "")
+    if not public_key:
+        send_json(conn, {"status": "ERROR", "message": "Clé manquante"})
+        return
+
+    update_public_key(username, public_key)
+    send_json(conn, {"status": "OK", "message": "Clé publique enregistrée"})
+    log_event("INFO", "UPLOAD_KEY", f"user={username}")
+
+
+def _handle_get_key(conn, msg):
+    """Retourne la clé publique RSA d'un utilisateur donné."""
+    target = msg.get("target", "")
+    user = get_user(target)
+
+    if user and user.get("public_key"):
+        send_json(conn, {"status": "OK", "public_key": user["public_key"]})
+    else:
+        send_json(conn, {"status": "ERROR", "message": f"Clé introuvable pour {target}"})
+
+
+def _handle_message(conn, msg, username):
+    """
+    Route un message chiffré vers son destinataire.
+    Le serveur NE DÉCHIFFRE PAS le contenu — il fait suivre tel quel.
+    """
+    if not username:
+        send_json(conn, {"status": "ERROR", "message": "Non authentifié"})
+        return
+
+    target   = msg.get("to", "")
+    content  = msg.get("content", "")  # contenu RSA-OAEP chiffré en base64
+
+    with clients_lock:
+        target_conn = connected_clients.get(target)
+
+    if target_conn:
+        # Transmettre le message au destinataire
+        send_json(target_conn, {
+            "action":  "MESSAGE",
+            "from":    username,
+            "content": content   # chiffré, le serveur ne voit rien
+        })
+        send_json(conn, {"status": "OK"})
+        log_event("INFO", "MESSAGE_ROUTE", f"from={username}, to={target}")
+    else:
+        send_json(conn, {"status": "ERROR", "message": f"{target} n'est pas connecté"})
+        log_event("WARNING", "MESSAGE_ECHEC", f"from={username}, to={target} introuvable")
+
+
+def _handle_list_users(conn, username):
+    """Envoie la liste des utilisateurs actuellement connectés."""
+    with clients_lock:
+        users = [u for u in connected_clients.keys() if u != username]
+    send_json(conn, {"status": "OK", "users": users})
+
+
+def _broadcast_user_list():
+    """Envoie la liste des connectés à TOUS les clients (mise à jour en temps réel)."""
+    with clients_lock:
+        all_users = list(connected_clients.keys())
+        snapshot  = dict(connected_clients)
+
+    for uname, sock in snapshot.items():
+        others = [u for u in all_users if u != uname]
+        try:
+            send_json(sock, {"action": "USER_LIST", "users": others})
+        except Exception:
+            pass  # client déconnecté entre temps, ignoré
+
+# ── Démarrage du serveur ──────────────────────────────────────────
+
+def start_server():
+    init_db()
+    log_event("INFO", "DEMARRAGE", f"Serveur CHATSEC sur {HOST}:{PORT}")
+
+    # Contexte TLS : charge le certificat et la clé
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
+
+    # Socket TCP brut
+    raw_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    raw_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    raw_sock.bind((HOST, PORT))
+    raw_sock.listen(10)
+
+    print(f"[CHATSEC] Serveur en écoute sur {HOST}:{PORT} (TLS)")
+
+    # Envelopper le socket d'écoute avec TLS
+    tls_sock = context.wrap_socket(raw_sock, server_side=True)
+
+    try:
+        while True:
+            # Accepter une nouvelle connexion TLS
+            conn, addr = tls_sock.accept()
+            log_event("INFO", "NOUVELLE_CONNEXION", f"addr={addr}")
+
+            # Lancer un thread dédié pour ce client
+            t = threading.Thread(target=handle_client, args=(conn, addr), daemon=True)
+            t.start()
+
+    except KeyboardInterrupt:
+        log_event("INFO", "ARRET", "Serveur arrêté manuellement")
+        print("\n[CHATSEC] Serveur arrêté.")
+    finally:
+        tls_sock.close()
+
+if __name__ == "__main__":
+    start_server()
