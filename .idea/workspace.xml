@@ -5,10 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="097b1e70-d43f-42b7-bd73-71603a2817db" name="Default" comment="">
-      <change afterPath="$PROJECT_DIR$/database.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/generate_cert.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server.py" beforeDir="false" afterPath="$PROJECT_DIR$/server.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/client.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -80,6 +77,18 @@
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "VVithushan"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/arielleras/CHATSEC-ING1-APP-RS.git",
+    "accountId": "69459398-2b40-4d38-801f-c8db37c0fb58"
+  }
+}]]></component>
   <component name="IdeDocumentHistory">
     <option name="CHANGED_PATHS">
       <list>
@@ -90,23 +99,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.4564996941695134" />
-      <entry key="MS500" value="3.084841811476437" />
-      <entry key="S2" value="7.928632719994599" />
-      <entry key="S5" value="14.60002433115825" />
-      <entry key="S10" value="20.426281459569495" />
-      <entry key="S30" value="29.289399399147865" />
-      <entry key="S60" value="34.63595500158309" />
-      <entry key="M2" value="40.01027702871957" />
-      <entry key="M5" value="46.67779387455054" />
-      <entry key="M10" value="50.25988660397439" />
-      <entry key="M15" value="51.69114596361457" />
-      <entry key="M30" value="53.2653773571931" />
-      <entry key="H1" value="54.11146799118206" />
-      <entry key="H2" value="54.55027458943627" />
-      <entry key="H4" value="54.77375265657972" />
-      <entry key="D1" value="54.96209809501844" />
-      <entry key="W1" value="54.994580668393525" />
+      <entry key="MS100" value="1.6003605793085218" />
+      <entry key="MS500" value="3.0534726973502013" />
+      <entry key="S2" value="3.7207993311355008" />
+      <entry key="S5" value="3.8843640023468327" />
+      <entry key="S10" value="3.941499596221499" />
+      <entry key="S30" value="3.980346010955087" />
+      <entry key="S60" value="3.990412815975617" />
+      <entry key="M2" value="4.14915590411599" />
+      <entry key="M5" value="12.125752081888214" />
+      <entry key="M10" value="37.746893994052506" />
+      <entry key="M15" value="60.25931795830914" />
+      <entry key="M30" value="100.70248891489312" />
+      <entry key="H1" value="132.62172445837692" />
+      <entry key="H2" value="152.9507813852025" />
+      <entry key="H4" value="164.46541945836142" />
+      <entry key="D1" value="174.83586879349863" />
+      <entry key="W1" value="176.68894313194593" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -128,29 +137,29 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.4044267568204873" />
-      <entry key="MS500" value="3.062304532343479" />
-      <entry key="S2" value="7.91447836147415" />
-      <entry key="S5" value="14.589579353696513" />
-      <entry key="S10" value="20.41739000425584" />
-      <entry key="S30" value="29.278651647871698" />
-      <entry key="S60" value="34.62687949675816" />
-      <entry key="M2" value="40.00417641487511" />
-      <entry key="M5" value="46.67480884791356" />
-      <entry key="M10" value="50.258278175337466" />
-      <entry key="M15" value="51.690045292253295" />
-      <entry key="M30" value="53.26481206509201" />
-      <entry key="H1" value="54.111181451113765" />
-      <entry key="H2" value="54.55013032542111" />
-      <entry key="H4" value="54.773680273443865" />
-      <entry key="D1" value="54.962085996056565" />
-      <entry key="W1" value="54.994578939107654" />
+      <entry key="MS100" value="1.5715155353895702" />
+      <entry key="MS500" value="3.0436369006903097" />
+      <entry key="S2" value="3.7178748897589085" />
+      <entry key="S5" value="3.8831485958515426" />
+      <entry key="S10" value="3.9408839235196114" />
+      <entry key="S30" value="3.9801389805922303" />
+      <entry key="S60" value="3.9903090631711366" />
+      <entry key="M2" value="4.149101083403921" />
+      <entry key="M5" value="12.125657256516376" />
+      <entry key="M10" value="37.74665726026664" />
+      <entry key="M15" value="60.25900486527965" />
+      <entry key="M30" value="100.70215839734189" />
+      <entry key="H1" value="132.62147955234903" />
+      <entry key="H2" value="152.95063168144668" />
+      <entry key="H4" value="164.46533661468337" />
+      <entry key="D1" value="174.8358537610907" />
+      <entry key="W1" value="176.68894095284142" />
     </decayedShown>
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 8,
-  "fromUser": false
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 8,
+  &quot;fromUser&quot;: false
+}</component>
   <component name="ProjectFrameBounds">
     <option name="x" value="-8" />
     <option name="y" value="-8" />
@@ -178,23 +187,23 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "codeWithMe.voiceChat.enabledByDefault": "false",
-    "git-widget-placeholder": "dev__vithu",
-    "last_opened_file_path": "C:/Users/vvith/PycharmProjects/CHATSEC-ING1-APP-RS",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;dev__vithu&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/vvith/PycharmProjects/CHATSEC-ING1-APP-RS&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="C:\Users\vvith\PycharmProjects\CHATSEC-ING1-APP-RS" />
@@ -367,6 +376,7 @@
     <recent_temporary>
       <list>
         <item itemvalue="Python.Python-Chat-Interface" />
+        <item itemvalue="Python.Python-Chat-Interface" />
       </list>
     </recent_temporary>
   </component>
@@ -414,8 +424,23 @@
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
   <component name="VcsContentAnnotationSettings">
     <option name="myLimit" value="2678400000" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="feat: implémentation serveur TCP + TLS + base de données&#10;&#10;- server.py : serveur TCP avec wrapping SSL/TLS, gestion multi-clients&#10;  par threading, routing E2E des messages chiffrés&#10;- database.py : initialisation SQLite, table users (bcrypt) + table logs&#10;- generate_cert.py : génération certificat TLS auto-signé RSA-2048&#10;- requirements.txt : dépendances du projet&#10;&#10;CDC couvert : MUST (sockets, TLS, E2E, auth structure, chat temps réel)&#10;             SHOULD (journalisation, gestion erreurs, liste connectés)" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: implémentation serveur TCP + TLS + base de données&#10;&#10;- server.py : serveur TCP avec wrapping SSL/TLS, gestion multi-clients&#10;  par threading, routing E2E des messages chiffrés&#10;- database.py : initialisation SQLite, table users (bcrypt) + table logs&#10;- generate_cert.py : génération certificat TLS auto-signé RSA-2048&#10;- requirements.txt : dépendances du projet&#10;&#10;CDC couvert : MUST (sockets, TLS, E2E, auth structure, chat temps réel)&#10;             SHOULD (journalisation, gestion erreurs, liste connectés)" />
   </component>
   <component name="editorHistoryManager">
     <entry file="file://$PROJECT_DIR$/usernames.txt">
