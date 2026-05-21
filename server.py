@@ -22,8 +22,9 @@ import socket
 import ssl
 import threading
 import json
+import pyotp
 
-from database import init_db, log_event, get_user, update_public_key, get_all_usernames
+from database import init_db, log_event, get_user, update_public_key, get_all_usernames, update_mfa_secret
 
 # ── Configuration ─────────────────────────────────────────────────
 
@@ -156,11 +157,24 @@ def _handle_signup(conn, msg):
         send_json(conn, {"status": "ERROR", "message": "Username ou mot de passe vide"})
         return
 
-    # Hash du mot de passe avec bcrypt (sel généré automatiquement)
     password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
     if create_user(username, password_hash):
-        send_json(conn, {"status": "OK", "message": "Compte créé"})
+        mfa_secret = pyotp.random_base32()
+
+        update_mfa_secret(username, mfa_secret)
+
+        mfa_uri = pyotp.TOTP(mfa_secret).provisioning_uri(
+            name=username,
+            issuer_name="CHATSEC"
+        )
+
+        send_json(conn, {
+            "status": "OK",
+            "message": "Compte créé. Scannez le QR code MFA.",
+            "mfa_uri": mfa_uri
+        })
+
         log_event("INFO", "SIGNUP_OK", f"user={username}")
     else:
         send_json(conn, {"status": "ERROR", "message": "Username déjà pris"})
@@ -168,28 +182,38 @@ def _handle_signup(conn, msg):
 
 
 def _handle_login(conn, msg, addr) -> str | None:
-    """Authentification. Retourne le username si succès, None sinon."""
     import bcrypt
 
     username = msg.get("username", "").strip()
     password = msg.get("password", "")
+    otp = msg.get("otp", "").strip()
 
     user = get_user(username)
 
-    # Vérification : utilisateur existe + mot de passe correct
-    if user and bcrypt.checkpw(password.encode(), user["password_hash"].encode()):
-        # Ajouter aux clients connectés
-        with clients_lock:
-            connected_clients[username] = conn
-
-        send_json(conn, {"status": "OK", "message": "Connecté"})
-        log_event("INFO", "LOGIN_OK", f"user={username}, addr={addr}")
-        _broadcast_user_list()  # notifier tout le monde
-        return username
-    else:
+    if not user or not bcrypt.checkpw(password.encode(), user["password_hash"].encode()):
         send_json(conn, {"status": "ERROR", "message": "Identifiants incorrects"})
         log_event("WARNING", "LOGIN_ECHEC", f"user={username}, addr={addr}")
         return None
+
+    mfa_secret = user.get("mfa_secret")
+
+    if not mfa_secret:
+        send_json(conn, {"status": "ERROR", "message": "MFA non configuré"})
+        return None
+
+    if not otp or not pyotp.TOTP(mfa_secret).verify(otp, valid_window=1):
+        send_json(conn, {"status": "ERROR", "message": "Code MFA incorrect"})
+        log_event("WARNING", "MFA_ECHEC", f"user={username}, addr={addr}")
+        return None
+
+    with clients_lock:
+        connected_clients[username] = conn
+
+    send_json(conn, {"status": "OK", "message": "Connecté"})
+    log_event("INFO", "LOGIN_OK", f"user={username}, addr={addr}")
+    _broadcast_user_list()
+
+    return username
 
 
 def _handle_upload_key(conn, msg, username):

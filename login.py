@@ -6,6 +6,7 @@ from chat import Chatroom
 from chatsec_client import ChatsecClient, HOST, PORT
 
 
+
 class LoginPage:
     def __init__(self):
         self.client = None
@@ -13,18 +14,24 @@ class LoginPage:
     def Login(self, event=None):
         username = self.USERNAME.get().strip()
         password = self.PASSWORD.get()
+        otp = self.OTP.get().strip()
 
-        if not username or not password:
-            self.show_status("Username et mot de passe obligatoires.", error=True)
+        if not username or not password or not otp:
+            self.show_status("Username, mot de passe et code MFA obligatoires.", error=True)
             return
 
         self.set_busy(True)
         self.show_status("Connexion au serveur...")
-        threading.Thread(target=self._login_worker, args=(username, password), daemon=True).start()
 
-    def _login_worker(self, username, password):
+        threading.Thread(
+            target=self._login_worker,
+            args=(username, password, otp),
+            daemon=True
+        ).start()
+
+    def _login_worker(self, username, password, otp):
         client = ChatsecClient()
-        result = client.login(username, password)
+        result = client.login(username, password, otp)
         self.root.after(0, lambda: self._finish_login(username, client, result))
 
     def _finish_login(self, username, client, result):
@@ -54,6 +61,7 @@ class LoginPage:
         self.root.minsize(480, 340)
         self.root.title("CHATSEC - Connexion")
         self.root.configure(bg="#101418")
+        self.OTP = tk.StringVar(self.root)
 
         self.USERNAME = tk.StringVar(self.root)
         self.PASSWORD = tk.StringVar(self.root)
@@ -83,8 +91,12 @@ class LoginPage:
         password_entry = ttk.Entry(form, textvariable=self.PASSWORD, show="*")
         password_entry.grid(row=1, column=1, sticky="ew", pady=6)
 
+        ttk.Label(form, text="Code MFA", style="Field.TLabel").grid(row=2, column=0, sticky="w", padx=(0, 12))
+        otp_entry = ttk.Entry(form, textvariable=self.OTP)
+        otp_entry.grid(row=2, column=1, sticky="ew", pady=6)
+
         self.error_label = ttk.Label(form, text=f"Serveur: {HOST}:{PORT}", style="Status.TLabel")
-        self.error_label.grid(row=2, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        self.error_label.grid(row=3, column=0, columnspan=2, sticky="w", pady=(10, 0))
 
         actions = ttk.Frame(shell, style="App.TFrame")
         actions.grid(row=3, column=0, sticky="ew", pady=(18, 0))

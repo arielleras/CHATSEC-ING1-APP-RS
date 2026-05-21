@@ -5,6 +5,10 @@ from tkinter import ttk
 from chat import Chatroom
 from chatsec_client import ChatsecClient, HOST, PORT
 
+import pyotp
+import qrcode
+from PIL import ImageTk
+
 
 class SignupPage:
     def __init__(self):
@@ -35,13 +39,11 @@ class SignupPage:
     def _signup_worker(self, username, password):
         signup_client = ChatsecClient()
         signup_result = signup_client.signup(username, password)
-        if signup_result.get("status") != "OK":
-            self.root.after(0, lambda: self._finish_signup(username, None, signup_result))
-            return
 
-        client = ChatsecClient()
-        login_result = client.login(username, password)
-        self.root.after(0, lambda: self._finish_signup(username, client, login_result))
+        self.root.after(
+            0,
+            lambda: self._show_mfa_qr(username, password, signup_result)
+        )
 
     def _finish_signup(self, username, client, result):
         self.set_busy(False)
@@ -64,17 +66,64 @@ class SignupPage:
         from login import LoginPage
 
         LoginPage().main()
+    
+    def _show_mfa_qr(self, username, password, result):
+        self.set_busy(False)
+
+        if result.get("status") != "OK":
+            self.show_status(result.get("message", "Inscription impossible."), error=True)
+            return
+
+        self.pending_username = username
+        self.pending_password = password
+        self.mfa_uri = result.get("mfa_uri")
+
+        qr_img = qrcode.make(self.mfa_uri)
+        qr_img = qr_img.resize((180, 180))
+
+        self.qr_photo = ImageTk.PhotoImage(qr_img)
+        self.qr_label.configure(image=self.qr_photo)
+
+        self.show_status("Scanne le QR code avec Google Authenticator, puis entre le code MFA.")
+        self.signup_button.configure(text="Valider le MFA", command=self.ValidateMFA)
+
+    def ValidateMFA(self):
+        otp = self.OTP.get().strip()
+
+        if not otp:
+            self.show_status("Code MFA obligatoire.", error=True)
+            return
+
+        self.set_busy(True)
+        self.show_status("Vérification du MFA...")
+
+        threading.Thread(
+            target=self._mfa_login_worker,
+            args=(self.pending_username, self.pending_password, otp),
+            daemon=True
+        ).start()
+    
+    def _mfa_login_worker(self, username, password, otp):
+        client = ChatsecClient()
+        login_result = client.login(username, password, otp)
+
+        self.root.after(
+            0,
+            lambda: self._finish_signup(username, client, login_result)
+        )
 
     def main(self):
         self.root = tk.Tk()
-        self.root.geometry("540x420")
-        self.root.minsize(500, 380)
+        self.root.geometry("540x520")
+        self.root.minsize(500, 480)
         self.root.title("CHATSEC - Inscription")
         self.root.configure(bg="#101418")
 
         self.USERNAME = tk.StringVar(self.root)
         self.PASSWORD = tk.StringVar(self.root)
         self.CONFIRM_PASSWORD = tk.StringVar(self.root)
+        self.OTP = tk.StringVar(self.root)
+        self.qr_photo = None
 
         self._configure_style()
 
@@ -105,8 +154,15 @@ class SignupPage:
         confirm_entry = ttk.Entry(form, textvariable=self.CONFIRM_PASSWORD, show="*")
         confirm_entry.grid(row=2, column=1, sticky="ew", pady=6)
 
+        self.qr_label = ttk.Label(form, style="Field.TLabel")
+        self.qr_label.grid(row=3, column=0, columnspan=2, pady=(12, 8))
+
+        ttk.Label(form, text="Code MFA", style="Field.TLabel").grid(row=4, column=0, sticky="w", padx=(0, 12))
+        self.otp_entry = ttk.Entry(form, textvariable=self.OTP)
+        self.otp_entry.grid(row=4, column=1, sticky="ew", pady=6)
+
         self.error_label = ttk.Label(form, text=f"Serveur: {HOST}:{PORT}", style="Status.TLabel")
-        self.error_label.grid(row=3, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        self.error_label.grid(row=5, column=0, columnspan=2, sticky="w", pady=(10, 0))
 
         actions = ttk.Frame(shell, style="App.TFrame")
         actions.grid(row=3, column=0, sticky="ew", pady=(18, 0))
@@ -114,10 +170,13 @@ class SignupPage:
 
         self.login_button = ttk.Button(actions, text="Connexion", command=self.navigate_to_login)
         self.login_button.grid(row=0, column=0, sticky="w")
+
         self.signup_button = ttk.Button(actions, text="Creer le compte", command=self.Register, style="Accent.TButton")
         self.signup_button.grid(row=0, column=1, sticky="e")
 
         confirm_entry.bind("<Return>", self.Register)
+        self.otp_entry.bind("<Return>", lambda event: self.ValidateMFA())
+
         username_entry.focus_set()
         self.root.mainloop()
 
