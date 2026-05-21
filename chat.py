@@ -10,9 +10,9 @@ class Chatroom:
 
     def run(self, user, client):
         self.root = tk.Tk()
-        self.root.title("CHATSEC")
+        self.root.title(f"CHATSEC - {user}")
         self.root.geometry(default_window_size)
-        self.root.minsize(720, 460)
+        self.root.minsize(860, 560)
 
         self.app = ChatInterface(self.root, fullname=user, client=client)
         self.app.default_format()

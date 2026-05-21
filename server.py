@@ -23,6 +23,7 @@ import ssl
 import threading
 import json
 import pyotp
+from pathlib import Path
 
 from database import init_db, log_event, get_user, update_public_key, get_all_usernames, update_mfa_secret
 
@@ -30,8 +31,8 @@ from database import init_db, log_event, get_user, update_public_key, get_all_us
 
 HOST = "0.0.0.0"   # écoute sur toutes les interfaces réseau
 PORT = 5555
-CERT_FILE = "server.crt"
-KEY_FILE  = "server.key"
+CERT_FILE = str(Path(__file__).parent / "server.crt")
+KEY_FILE  = str(Path(__file__).parent / "server.key")
 
 # Dictionnaire des clients connectés : { username: ssl_socket }
 # Partagé entre tous les threads → protégé par un verrou
