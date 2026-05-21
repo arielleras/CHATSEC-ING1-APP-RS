@@ -8,10 +8,11 @@ from Crypto.PublicKey import RSA
 
 from encryption_decryption import rsa_decrypt, rsa_encrypt
 
+from pathlib import Path
 
 HOST = "127.0.0.1"
 PORT = 5555
-SERVER_CERT = "server.crt"
+SERVER_CERT = str(Path(__file__).parent / "server.crt")
 
 
 class ChatsecClient:
@@ -103,6 +104,7 @@ class ChatsecClient:
         context.check_hostname = False
         raw_sock = socket.create_connection((self.host, self.port), timeout=5)
         self.sock = context.wrap_socket(raw_sock, server_hostname="localhost")
+        self.sock.settimeout(None)
 
     def list_users(self):
         return self.request({"action": "LIST_USERS"})

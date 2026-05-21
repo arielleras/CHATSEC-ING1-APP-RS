@@ -9,6 +9,8 @@ import tkinter as tk
 import queue
 from tkinter import messagebox, ttk
 
+from pyotp import otp
+
 from chatsec_client import ChatsecClient, HOST, PORT
 
 
@@ -39,6 +41,10 @@ class ChatsecApp(tk.Tk):
         ttk.Label(self.auth_frame, text="Password").grid(row=2, column=0, sticky="w")
         self.password_entry = ttk.Entry(self.auth_frame, show="*", width=32)
         self.password_entry.grid(row=2, column=1, sticky="ew", pady=5)
+
+        ttk.Label(self.auth_frame, text="Code MFA (6 chiffres)").grid(row=3, column=0, sticky="w")
+        self.otp_entry = ttk.Entry(self.auth_frame, width=32)
+        self.otp_entry.grid(row=3, column=1, sticky="ew", pady=5)
 
         actions = ttk.Frame(self.auth_frame)
         actions.grid(row=3, column=0, columnspan=2, sticky="e", pady=(14, 0))
@@ -117,7 +123,8 @@ class ChatsecApp(tk.Tk):
             messagebox.showwarning("CHATSEC", "Username et password obligatoires.")
             return
 
-        response = self.client.login(username, password)
+        otp = self.otp_entry.get().strip()
+        response = self.client.login(username, password, otp)
         if response.get("status") == "OK":
             self.connected_label.configure(text=f"Connecte: {username}")
             self.show_chat()
