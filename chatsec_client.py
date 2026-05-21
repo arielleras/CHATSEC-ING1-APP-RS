@@ -39,33 +39,65 @@ class ChatsecClient:
         finally:
             self.close()
 
-    def login(self, username, password):
+    def login(self, username, password, otp):
         try:
             self.connect()
-            self._send({"action": "LOGIN", "username": username, "password": password})
+
+            self._send({
+                "action": "LOGIN",
+                "username": username,
+                "password": password,
+                "otp": otp
+            })
+
             response = self._recv_response_blocking()
+
             if response.get("status") != "OK":
                 self.close()
                 return response
 
             self.username = username
-            key = RSA.generate(2048)
-            self.private_key = key.export_key("PEM")
-            self.public_key = key.publickey().export_key("PEM").decode("utf-8")
 
-            self._send({"action": "UPLOAD_KEY", "public_key": self.public_key})
+            key = RSA.generate(2048)
+
+            self.private_key = key.export_key("PEM")
+
+            self.public_key = (
+                key.publickey()
+                .export_key("PEM")
+                .decode("utf-8")
+            )
+
+            self._send({
+                "action": "UPLOAD_KEY",
+                "public_key": self.public_key
+            })
+
             response = self._recv_response_blocking()
+
             if response.get("status") != "OK":
                 self.close()
                 return response
 
             self.running = True
-            threading.Thread(target=self._listen, daemon=True).start()
-            return {"status": "OK", "message": "Connecte"}
+
+            threading.Thread(
+                target=self._listen,
+                daemon=True
+            ).start()
+
+            return {
+                "status": "OK",
+                "message": "Connecté"
+            }
+
         except OSError as exc:
             self.close()
-            return self._error(f"Impossible de joindre le serveur: {exc}")
 
+            return self._error(
+                f"Impossible de joindre le serveur: {exc}"
+            )
+    
     def connect(self):
         context = ssl.create_default_context(cafile=self.cert_file)
         context.check_hostname = False
