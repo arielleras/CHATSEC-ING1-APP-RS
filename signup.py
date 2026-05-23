@@ -1,9 +1,11 @@
 import threading
 import tkinter as tk
 from tkinter import ttk
+import re
 
 import qrcode
 from PIL import ImageTk
+import pyotp
 
 from chat import Chatroom
 from chatsec_client import ChatsecClient, HOST, PORT
@@ -12,6 +14,22 @@ from chatsec_client import ChatsecClient, HOST, PORT
 class SignupPage:
     def __init__(self):
         self.client = None
+        self.pending_username = None
+        self.pending_password = None
+        self.pending_mfa_secret = None
+
+    def validate_password(self, password):
+        if len(password) < 12:
+            return "Le mot de passe doit contenir au moins 12 caractères."
+        if not re.search(r"[a-z]", password):
+            return "Le mot de passe doit contenir au moins une lettre minuscule."
+        if not re.search(r"[A-Z]", password):
+            return "Le mot de passe doit contenir au moins une lettre majuscule."
+        if not re.search(r"\d", password):
+            return "Le mot de passe doit contenir au moins un chiffre."
+        if not re.search(r"[^\w\s]", password):
+            return "Le mot de passe doit contenir au moins un caractère spécial."
+        return None
 
     def Register(self, event=None):
         username = self.USERNAME.get().strip()
@@ -24,38 +42,24 @@ class SignupPage:
         if len(username) < 2:
             self.show_status("Le nom d'utilisateur doit contenir au moins 2 caractères.", error=True)
             return
-        if len(password) < 4:
-            self.show_status("Le mot de passe doit contenir au moins 4 caractères.", error=True)
+
+        password_error = self.validate_password(password)
+        if password_error:
+            self.show_status(password_error, error=True)
             return
+
         if password != confirm:
             self.show_status("Les mots de passe ne correspondent pas.", error=True)
             return
 
-        self.set_busy(True)
-        self.show_status("Création du compte...")
-        threading.Thread(target=self._signup_worker, args=(username, password), daemon=True).start()
-
-    def _signup_worker(self, username, password):
-        signup_client = ChatsecClient()
-        signup_result = signup_client.signup(username, password)
-
-        self.root.after(
-            0,
-            lambda: self._show_mfa_qr(username, password, signup_result)
-        )
-
-    def _show_mfa_qr(self, username, password, result):
-        self.set_busy(False)
-
-        if result.get("status") != "OK":
-            self.show_status(result.get("message", "Inscription impossible."), error=True)
-            return
-
         self.pending_username = username
         self.pending_password = password
-        self.mfa_uri = result.get("mfa_uri")
+        self.pending_mfa_secret = pyotp.random_base32()
 
-        qr_img = qrcode.make(self.mfa_uri)
+        totp = pyotp.TOTP(self.pending_mfa_secret)
+        mfa_uri = totp.provisioning_uri(name=username, issuer_name="CHATSEC")
+
+        qr_img = qrcode.make(mfa_uri)
         qr_img = qr_img.resize((180, 180))
 
         self.qr_photo = ImageTk.PhotoImage(qr_img)
@@ -72,22 +76,33 @@ class SignupPage:
             self.show_status("Code MFA obligatoire.", error=True)
             return
 
-        self.set_busy(True)
-        self.show_status("Vérification du MFA...")
+        if not self.pending_mfa_secret:
+            self.show_status("Aucun secret MFA en attente.", error=True)
+            return
 
+        totp = pyotp.TOTP(self.pending_mfa_secret)
+        if not totp.verify(otp, valid_window=1):
+            self.show_status("Code MFA incorrect.", error=True)
+            return
+
+        self.set_busy(True)
+        self.show_status("Création du compte...")
         threading.Thread(
-            target=self._mfa_login_worker,
-            args=(self.pending_username, self.pending_password, otp),
+            target=self._final_signup_worker,
+            args=(self.pending_username, self.pending_password, self.pending_mfa_secret),
             daemon=True
         ).start()
 
-    def _mfa_login_worker(self, username, password, otp):
+    def _final_signup_worker(self, username, password, mfa_secret):
         client = ChatsecClient()
-        login_result = client.login(username, password, otp)
+
+        # À adapter côté backend :
+        # le serveur doit créer l'utilisateur ICI, après validation MFA
+        signup_result = client.signup(username, password, mfa_secret)
 
         self.root.after(
             0,
-            lambda: self._finish_signup(username, client, login_result)
+            lambda: self._finish_signup(username, client, signup_result)
         )
 
     def _finish_signup(self, username, client, result):
@@ -101,7 +116,7 @@ class SignupPage:
         if client:
             client.close()
 
-        self.show_status(result.get("message", "Code MFA incorrect ou connexion impossible."), error=True)
+        self.show_status(result.get("message", "Inscription impossible."), error=True)
 
     def HomeWindow(self, username=None):
         username = username or self.USERNAME.get().strip()
@@ -165,7 +180,7 @@ class SignupPage:
 
         self.qr_label = ttk.Label(
             form,
-            text="Le QR code apparaîtra ici après la création du compte.",
+            text="Le QR code apparaîtra ici après vérification des champs.",
             style="Hint.TLabel",
             anchor="center"
         )
@@ -177,7 +192,7 @@ class SignupPage:
 
         ttk.Label(
             form,
-            text="Après le scan, saisis le code à 6 chiffres pour activer le compte.",
+            text="Après le scan, saisis le code à 6 chiffres pour finaliser la création du compte.",
             style="Hint.TLabel",
         ).grid(row=7, column=1, sticky="w", pady=(2, 10))
 
