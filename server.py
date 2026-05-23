@@ -231,6 +231,10 @@ def _handle_login(conn, msg, addr) -> str | None:
             return None
 
         remaining = MAX_LOGIN_ATTEMPTS - _get_attempt_count(username)
+        send_json(conn, {
+            "status": "ERROR",
+            "message": f"Identifiants incorrects. Il reste {remaining} tentative(s)."
+        })
         log_event("WARNING", "LOGIN_ECHEC", f"user={username}, addr={addr}")
         return None
 
@@ -249,6 +253,10 @@ def _handle_login(conn, msg, addr) -> str | None:
             return None
 
         remaining = MAX_LOGIN_ATTEMPTS - _get_attempt_count(username)
+        send_json(conn, {
+            "status": "ERROR",
+            "message": f"Code MFA incorrect. Il reste {remaining} tentative(s)."
+        })
         log_event("WARNING", "MFA_ECHEC", f"user={username}, addr={addr}")
         return None
 
