@@ -1,9 +1,9 @@
 import threading
 import tkinter as tk
 from tkinter import ttk
+
 from chat import Chatroom
 from chatsec_client import ChatsecClient, HOST, PORT
-
 
 
 class LoginPage:
@@ -16,7 +16,7 @@ class LoginPage:
         otp = self.OTP.get().strip()
 
         if not username or not password or not otp:
-            self.show_status("Username, mot de passe et code MFA obligatoires.", error=True)
+            self.show_status("Nom d'utilisateur, mot de passe et code MFA obligatoires.", error=True)
             return
 
         self.set_busy(True)
@@ -35,13 +35,15 @@ class LoginPage:
 
     def _finish_login(self, username, client, result):
         self.set_busy(False)
+
         if result.get("status") == "OK":
             self.client = client
             self.HomeWindow(username)
             return
 
         client.close()
-        self.show_status(result.get("message", "Connexion impossible."), error=True)
+        message = result.get("message", "Connexion impossible.")
+        self.show_status(message, error=True)
 
     def HomeWindow(self, username=None):
         username = username or self.USERNAME.get().strip()
@@ -51,7 +53,6 @@ class LoginPage:
     def navigate_to_signup(self):
         self.root.destroy()
         from signup import SignupPage
-
         SignupPage().main()
 
     def main(self):
@@ -60,10 +61,10 @@ class LoginPage:
         self.root.minsize(520, 400)
         self.root.title("CHATSEC - Connexion")
         self.root.configure(bg="#101418")
-        self.OTP = tk.StringVar(self.root)
 
         self.USERNAME = tk.StringVar(self.root)
         self.PASSWORD = tk.StringVar(self.root)
+        self.OTP = tk.StringVar(self.root)
 
         self._configure_style()
 
@@ -82,15 +83,21 @@ class LoginPage:
         form.grid(row=2, column=0, sticky="nsew")
         form.columnconfigure(1, weight=1)
 
-        ttk.Label(form, text="Nom d’utilisateur", style="Field.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 12))
+        ttk.Label(form, text="Nom d’utilisateur", style="Field.TLabel").grid(
+            row=0, column=0, sticky="w", padx=(0, 12)
+        )
         username_entry = ttk.Entry(form, textvariable=self.USERNAME)
         username_entry.grid(row=0, column=1, sticky="ew", pady=6)
 
-        ttk.Label(form, text="Mot de passe", style="Field.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 12))
+        ttk.Label(form, text="Mot de passe", style="Field.TLabel").grid(
+            row=1, column=0, sticky="w", padx=(0, 12)
+        )
         password_entry = ttk.Entry(form, textvariable=self.PASSWORD, show="*")
         password_entry.grid(row=1, column=1, sticky="ew", pady=6)
 
-        ttk.Label(form, text="Code MFA", style="Field.TLabel").grid(row=2, column=0, sticky="w", padx=(0, 12))
+        ttk.Label(form, text="Code MFA", style="Field.TLabel").grid(
+            row=2, column=0, sticky="w", padx=(0, 12)
+        )
         otp_entry = ttk.Entry(form, textvariable=self.OTP)
         otp_entry.grid(row=2, column=1, sticky="ew", pady=6)
 
@@ -101,20 +108,36 @@ class LoginPage:
         )
         self.mfa_help.grid(row=3, column=1, sticky="w", pady=(0, 6))
 
-        self.error_label = ttk.Label(form, text=f"Serveur : {HOST}:{PORT}", style="Status.TLabel")
+        self.error_label = ttk.Label(
+            form,
+            text=f"Serveur : {HOST}:{PORT}",
+            style="Status.TLabel"
+        )
         self.error_label.grid(row=4, column=0, columnspan=2, sticky="w", pady=(10, 0))
 
         actions = ttk.Frame(shell, style="App.TFrame")
         actions.grid(row=3, column=0, sticky="ew", pady=(18, 0))
         actions.columnconfigure(0, weight=1)
 
-        self.signup_button = ttk.Button(actions, text="Créer un compte", command=self.navigate_to_signup)
+        self.signup_button = ttk.Button(
+            actions,
+            text="Créer un compte",
+            command=self.navigate_to_signup
+        )
         self.signup_button.grid(row=0, column=0, sticky="w")
-        self.login_button = ttk.Button(actions, text="Se connecter", command=self.Login, style="Accent.TButton")
+
+        self.login_button = ttk.Button(
+            actions,
+            text="Se connecter",
+            command=self.Login,
+            style="Accent.TButton"
+        )
         self.login_button.grid(row=0, column=1, sticky="e")
 
+        username_entry.bind("<Return>", self.Login)
         password_entry.bind("<Return>", self.Login)
         otp_entry.bind("<Return>", self.Login)
+
         username_entry.focus_set()
         self.root.mainloop()
 
@@ -130,6 +153,7 @@ class LoginPage:
     def _configure_style(self):
         style = ttk.Style(self.root)
         style.theme_use("clam")
+
         style.configure("App.TFrame", background="#101418")
         style.configure("Panel.TFrame", background="#182028", borderwidth=1, relief="solid")
         style.configure("Title.TLabel", background="#101418", foreground="#e8f0f2", font=("Segoe UI", 22, "bold"))
@@ -137,7 +161,7 @@ class LoginPage:
         style.configure("Field.TLabel", background="#182028", foreground="#d7e0e4", font=("Segoe UI", 10))
         style.configure("Status.TLabel", background="#182028", foreground="#7dd3a7", font=("Segoe UI", 9))
         style.configure("Help.TLabel", background="#182028", foreground="#91a0a8", font=("Segoe UI", 9))
-        style.configure("Error.TLabel", background="#182028", foreground="#ff9f9f", font=("Segoe UI", 9))
+        style.configure("Error.TLabel", background="#182028", foreground="#ff4d4f", font=("Segoe UI", 9, "bold"))
         style.configure("TEntry", padding=6)
         style.configure("TButton", padding=(12, 7))
         style.configure("Accent.TButton", background="#2aa36b", foreground="#ffffff")
