@@ -23,9 +23,14 @@ import ssl
 import threading
 import json
 import pyotp
+import uuid
 from pathlib import Path
 
-from database import init_db, log_event, get_user, update_public_key, get_all_usernames, update_mfa_secret
+from database import (
+    init_db, log_event, get_user, update_public_key,
+    get_all_usernames, update_mfa_secret,
+    create_session, delete_session
+)
 
 # ── Configuration ─────────────────────────────────────────────────
 
@@ -136,12 +141,20 @@ def handle_client(conn: ssl.SSLSocket, addr: tuple):
         log_event("ERROR", "ERREUR_CLIENT", f"user={username}, err={e}")
 
     finally:
-        # Nettoyage : retirer le client de la liste des connectés
+        # Chercher le username par socket si non défini
+        if not username:
+            with clients_lock:
+                for u, s in list(connected_clients.items()):
+                    if s is conn:
+                        username = u
+                        break
+
         if username:
             with clients_lock:
                 connected_clients.pop(username, None)
+            delete_session(username)
             log_event("INFO", "DECONNEXION", f"user={username}, addr={addr}")
-            _broadcast_user_list()  # mettre à jour la liste chez tous
+            _broadcast_user_list()
         conn.close()
 
 # ── Handlers des actions ──────────────────────────────────────────
@@ -191,11 +204,6 @@ def _handle_login(conn, msg, addr) -> str | None:
 
     user = get_user(username)
 
-    if not user or not bcrypt.checkpw(password.encode(), user["password_hash"].encode()):
-        send_json(conn, {"status": "ERROR", "message": "Identifiants incorrects"})
-        log_event("WARNING", "LOGIN_ECHEC", f"user={username}, addr={addr}")
-        return None
-
     mfa_secret = user.get("mfa_secret")
 
     if not mfa_secret:
@@ -206,6 +214,17 @@ def _handle_login(conn, msg, addr) -> str | None:
         send_json(conn, {"status": "ERROR", "message": "Code MFA incorrect"})
         log_event("WARNING", "MFA_ECHEC", f"user={username}, addr={addr}")
         return None
+
+    """Génère un identifiant unique de session"""
+    session_id = str(uuid.uuid4())
+    if not create_session(username, session_id):
+        send_json(conn, {
+            "status": "ERROR",
+            "message": "Cet utilisateur est déjà connecté sur un autre appareil."
+        })
+        log_event("WARNING", "LOGIN_DOUBLE_SESSION", f"user={username}, addr={addr}")
+        return None, None
+
 
     with clients_lock:
         connected_clients[username] = conn
