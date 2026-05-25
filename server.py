@@ -1,23 +1,23 @@
-"""
-server.py
----------
-Serveur TCP + TLS de CHATSEC.
-"""
-
+import json
 import socket
 import ssl
 import threading
-import json
 import time
-import pyotp
 from pathlib import Path
+
+import bcrypt
+import pyotp
 
 from database import (
     init_db,
     log_event,
     get_user,
     update_public_key,
-    update_mfa_secret,
+    username_exists_anywhere,
+    upsert_pending_signup,
+    get_pending_signup,
+    delete_pending_signup,
+    create_user_with_mfa,
 )
 
 HOST = "0.0.0.0"
@@ -81,10 +81,11 @@ def _is_blocked(username: str) -> int:
     with AUTH_STATE["lock"]:
         blocked_until = AUTH_STATE["blocked_until"].get(username, 0)
 
-        if blocked_until > now:
-            return max(1, int(blocked_until - now))
+    if blocked_until > now:
+        return max(1, int(blocked_until - now))
 
-        if username in AUTH_STATE["blocked_until"]:
+    if username in AUTH_STATE["blocked_until"]:
+        with AUTH_STATE["lock"]:
             AUTH_STATE["blocked_until"].pop(username, None)
             AUTH_STATE["attempt_counts"][username] = 0
 
@@ -96,28 +97,17 @@ def _register_failed_attempt(username: str) -> bool:
         current = AUTH_STATE["attempt_counts"].get(username, 0) + 1
         AUTH_STATE["attempt_counts"][username] = current
 
-        print(f"[DEBUG] tentative échouée pour {username}: {current}/{MAX_LOGIN_ATTEMPTS}")
-        print(f"[DEBUG] id(attempt_counts) = {id(AUTH_STATE['attempt_counts'])}")
-        print(f"[DEBUG] état attempt_counts = {AUTH_STATE['attempt_counts']}")
-        print(f"[DEBUG] état blocked_until = {AUTH_STATE['blocked_until']}")
-
         if current >= MAX_LOGIN_ATTEMPTS:
             AUTH_STATE["blocked_until"][username] = time.time() + LOCK_TIME_SECONDS
-            print(f"[DEBUG] compte bloqué pour {username} pendant {LOCK_TIME_SECONDS} secondes")
-            print(f"[DEBUG] état blocked_until = {AUTH_STATE['blocked_until']}")
             return True
 
-        return False
+    return False
 
 
 def _reset_attempts(username: str):
     with AUTH_STATE["lock"]:
         AUTH_STATE["attempt_counts"][username] = 0
         AUTH_STATE["blocked_until"].pop(username, None)
-
-    print(f"[DEBUG] compteur réinitialisé pour {username}")
-    print(f"[DEBUG] état attempt_counts = {AUTH_STATE['attempt_counts']}")
-    print(f"[DEBUG] état blocked_until = {AUTH_STATE['blocked_until']}")
 
 
 def handle_client(conn: ssl.SSLSocket, addr: tuple):
@@ -132,8 +122,14 @@ def handle_client(conn: ssl.SSLSocket, addr: tuple):
 
             action = msg.get("action")
 
-            if action == "SIGNUP":
-                _handle_signup(conn, msg)
+            if action == "CHECK_USERNAME":
+                _handle_check_username(conn, msg)
+
+            elif action == "SIGNUP_PREPARE":
+                _handle_signup_prepare(conn, msg)
+
+            elif action == "SIGNUP_CONFIRM":
+                _handle_signup_confirm(conn, msg)
 
             elif action == "LOGIN":
                 username = _handle_login(conn, msg, addr)
@@ -155,7 +151,6 @@ def handle_client(conn: ssl.SSLSocket, addr: tuple):
                 log_event("WARNING", "ACTION_INCONNUE", f"action={action}, user={username}")
 
     except Exception as e:
-        print(f"[DEBUG] erreur client: {e}")
         log_event("ERROR", "ERREUR_CLIENT", f"user={username}, err={e}")
 
     finally:
@@ -168,10 +163,21 @@ def handle_client(conn: ssl.SSLSocket, addr: tuple):
         conn.close()
 
 
-def _handle_signup(conn, msg):
-    import bcrypt
-    from database import create_user
+def _handle_check_username(conn, msg):
+    username = msg.get("username", "").strip()
 
+    if len(username) < 2:
+        send_json(conn, {"status": "ERROR", "message": "Nom d'utilisateur trop court."})
+        return
+
+    if username_exists_anywhere(username):
+        send_json(conn, {"status": "ERROR", "message": "Nom d'utilisateur déjà pris."})
+        return
+
+    send_json(conn, {"status": "OK", "message": "Nom d'utilisateur disponible."})
+
+
+def _handle_signup_prepare(conn, msg):
     username = msg.get("username", "").strip()
     password = msg.get("password", "")
 
@@ -179,40 +185,78 @@ def _handle_signup(conn, msg):
         send_json(conn, {"status": "ERROR", "message": "Username ou mot de passe vide"})
         return
 
+    if len(username) < 2:
+        send_json(conn, {"status": "ERROR", "message": "Nom d'utilisateur trop court."})
+        return
+
+    if username_exists_anywhere(username):
+        send_json(conn, {"status": "ERROR", "message": "Nom d'utilisateur déjà pris."})
+        return
+
     password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    mfa_secret = pyotp.random_base32()
 
-    if create_user(username, password_hash):
-        mfa_secret = pyotp.random_base32()
-        update_mfa_secret(username, mfa_secret)
+    upsert_pending_signup(username, password_hash, mfa_secret)
 
-        mfa_uri = pyotp.TOTP(mfa_secret).provisioning_uri(
-            name=username,
-            issuer_name="CHATSEC"
-        )
+    mfa_uri = pyotp.TOTP(mfa_secret).provisioning_uri(
+        name=username,
+        issuer_name="CHATSEC"
+    )
 
-        send_json(conn, {
-            "status": "OK",
-            "message": "Compte créé. Scannez le QR code MFA.",
-            "mfa_uri": mfa_uri
-        })
-        log_event("INFO", "SIGNUP_OK", f"user={username}")
-    else:
-        send_json(conn, {"status": "ERROR", "message": "Username déjà pris"})
-        log_event("WARNING", "SIGNUP_ECHEC", f"user={username} déjà existant")
+    send_json(conn, {
+        "status": "OK",
+        "message": "QR code MFA prêt.",
+        "mfa_uri": mfa_uri
+    })
+    log_event("INFO", "SIGNUP_PREPARE_OK", f"user={username}")
+
+
+def _handle_signup_confirm(conn, msg):
+    username = msg.get("username", "").strip()
+    otp = msg.get("otp", "").strip()
+
+    if not username or not otp:
+        send_json(conn, {"status": "ERROR", "message": "Username ou code MFA vide"})
+        return
+
+    pending = get_pending_signup(username)
+    if not pending:
+        send_json(conn, {"status": "ERROR", "message": "Aucune inscription en attente."})
+        return
+
+    mfa_secret = pending["mfa_secret"]
+
+    if not pyotp.TOTP(mfa_secret).verify(otp, valid_window=1):
+        send_json(conn, {"status": "ERROR", "message": "Code MFA invalide."})
+        log_event("WARNING", "SIGNUP_CONFIRM_ECHEC", f"user={username}")
+        return
+
+    if username_exists_anywhere(username) and not get_user(username) is None:
+        delete_pending_signup(username)
+        send_json(conn, {"status": "ERROR", "message": "Nom d'utilisateur déjà pris."})
+        return
+
+    ok = create_user_with_mfa(username, pending["password_hash"], mfa_secret)
+    if not ok:
+        send_json(conn, {"status": "ERROR", "message": "Impossible de créer le compte."})
+        return
+
+    delete_pending_signup(username)
+
+    send_json(conn, {
+        "status": "OK",
+        "message": "Compte créé avec succès."
+    })
+    log_event("INFO", "SIGNUP_CONFIRM_OK", f"user={username}")
 
 
 def _handle_login(conn, msg, addr) -> str | None:
-    import bcrypt
-
     username = msg.get("username", "").strip()
     password = msg.get("password", "")
     otp = msg.get("otp", "").strip()
 
-    print(f"[DEBUG] tentative de connexion pour {username}")
-
     blocked_seconds = _is_blocked(username)
     if blocked_seconds > 0:
-        print(f"[DEBUG] {username} est encore bloqué pendant {blocked_seconds} secondes")
         send_json(conn, {
             "status": "ERROR",
             "message": f"Compte bloqué pendant 1 minute. Réessaie dans {blocked_seconds} secondes."
@@ -267,7 +311,6 @@ def _handle_login(conn, msg, addr) -> str | None:
 
     send_json(conn, {"status": "OK", "message": "Connecté"})
     log_event("INFO", "LOGIN_OK", f"user={username}, addr={addr}")
-    print(f"[DEBUG] connexion réussie pour {username}")
     _broadcast_user_list()
 
     return username
@@ -353,9 +396,7 @@ def start_server():
     raw_sock.bind((HOST, PORT))
     raw_sock.listen(10)
 
-    print("### BON SERVER CHARGÉ ###")
     print(f"[CHATSEC] Serveur en écoute sur {HOST}:{PORT} (TLS)")
-    print("[DEBUG] timeout actif : 5 tentatives -> blocage 1 minute")
 
     tls_listener = context.wrap_socket(raw_sock, server_side=True)
 
@@ -371,8 +412,6 @@ def start_server():
                 continue
 
             log_event("INFO", "NOUVELLE_CONNEXION", f"addr={addr}")
-            print(f"[DEBUG] nouvelle connexion depuis {addr}")
-
             t = threading.Thread(target=handle_client, args=(conn, addr), daemon=True)
             t.start()
 
