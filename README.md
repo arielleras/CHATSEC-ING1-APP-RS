@@ -163,16 +163,3 @@ Réinitialiser la base locale :
 Remove-Item chatsec.db
 python server.py
 ```
-
-## Notes sur l'ancienne version
-
-Les anciens fichiers liés à RabbitMQ, LDAP et CA sont encore présents dans le dépôt pour historique ou comparaison, mais ils ne sont plus nécessaires pour lancer l'application actuelle.
-
-Le flux actuel est :
-
-```text
-python server.py
-python main.py
-```
-
-Il n'est plus nécessaire de lancer RabbitMQ, OpenLDAP ou `CA/ca_server.py` pour utiliser l'interface client actuelle.
