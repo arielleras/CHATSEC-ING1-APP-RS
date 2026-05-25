@@ -29,74 +29,6 @@ class ChatsecClient:
         self._send_lock = threading.Lock()
         self._request_lock = threading.Lock()
 
-    def connect(self):
-        context = ssl.create_default_context(cafile=self.cert_file)
-        context.check_hostname = False
-        raw_sock = socket.create_connection((self.host, self.port), timeout=5)
-        self.sock = context.wrap_socket(raw_sock, server_hostname="localhost")
-        self.sock.settimeout(None)
-
-    def close(self):
-        self.running = False
-        if self.sock:
-            try:
-                self.sock.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
-            try:
-                self.sock.close()
-            except OSError:
-                pass
-            self.sock = None
-
-    def check_username(self, username):
-        try:
-            self.connect()
-            self._send({"action": "CHECK_USERNAME", "username": username})
-            return self._recv_response_blocking()
-        except OSError as exc:
-            return self._error(f"Impossible de joindre le serveur: {exc}")
-        finally:
-            self.close()
-
-    def signup_prepare(self, username, password):
-        try:
-            self.connect()
-            self._send({
-                "action": "SIGNUP_PREPARE",
-                "username": username,
-                "password": password
-            })
-            return self._recv_response_blocking()
-        except OSError as exc:
-            return self._error(f"Impossible de joindre le serveur: {exc}")
-        finally:
-            self.close()
-
-    def signup_confirm(self, username, otp):
-        try:
-            self.connect()
-            self._send({
-                "action": "SIGNUP_CONFIRM",
-                "username": username,
-                "otp": otp
-            })
-            return self._recv_response_blocking()
-        except OSError as exc:
-            return self._error(f"Impossible de joindre le serveur: {exc}")
-        finally:
-            self.close()
-
-    def signup(self, username, password):
-        try:
-            self.connect()
-            self._send({"action": "SIGNUP", "username": username, "password": password})
-            return self._recv_response_blocking()
-        except OSError as exc:
-            return self._error(f"Impossible de joindre le serveur: {exc}")
-        finally:
-            self.close()
-
     def login(self, username, password, otp):
         try:
             self.connect()
@@ -109,7 +41,6 @@ class ChatsecClient:
             })
 
             response = self._recv_response_blocking()
-
             if response.get("status") != "OK":
                 self.close()
                 return response
@@ -126,7 +57,6 @@ class ChatsecClient:
             })
 
             response = self._recv_response_blocking()
-
             if response.get("status") != "OK":
                 self.close()
                 return response
@@ -134,17 +64,46 @@ class ChatsecClient:
             self.running = True
             threading.Thread(target=self._listen, daemon=True).start()
 
-            return {
-                "status": "OK",
-                "message": "Connecté"
-            }
+            return {"status": "OK", "message": "Connecté"}
 
         except OSError as exc:
             self.close()
             return self._error(f"Impossible de joindre le serveur: {exc}")
 
+    def connect(self):
+        context = ssl.create_default_context(cafile=self.cert_file)
+        context.check_hostname = False
+        raw_sock = socket.create_connection((self.host, self.port), timeout=5)
+        self.sock = context.wrap_socket(raw_sock, server_hostname="localhost")
+        self.sock.settimeout(None)
+
     def list_users(self):
         return self.request({"action": "LIST_USERS"})
+
+    def get_conversation(self, target):
+        response = self.request({"action": "GET_CONVERSATION", "target": target})
+        if response.get("status") != "OK":
+            return response
+
+        messages = []
+        for msg in response.get("messages", []):
+            decrypted_content = msg["content"]
+            try:
+                if msg["receiver"] == self.username:
+                    decrypted_content = rsa_decrypt(msg["content"], self.private_key).decode("utf-8")
+                else:
+                    decrypted_content = "[message envoyé]"
+            except Exception as exc:
+                decrypted_content = f"[message indechiffrable: {exc}]"
+
+            messages.append({
+                "sender": msg["sender"],
+                "receiver": msg["receiver"],
+                "content": decrypted_content,
+                "created_at": msg["created_at"]
+            })
+
+        return {"status": "OK", "messages": messages}
 
     def send_message(self, target, message):
         key_response = self.request({"action": "GET_KEY", "target": target})
@@ -164,6 +123,19 @@ class ChatsecClient:
                 return self.responses.get(timeout=timeout)
             except (OSError, queue.Empty) as exc:
                 return self._error(f"Le serveur ne repond pas: {exc}")
+
+    def close(self):
+        self.running = False
+        if self.sock:
+            try:
+                self.sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                self.sock.close()
+            except OSError:
+                pass
+            self.sock = None
 
     def _listen(self):
         while self.running:
