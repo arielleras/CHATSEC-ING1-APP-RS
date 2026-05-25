@@ -6,7 +6,6 @@ from pathlib import Path
 from threading import Thread
 from tkinter import messagebox
 
-
 DEFAULT_SIZE_FILE = Path("default_win_size.txt")
 
 
@@ -78,6 +77,11 @@ class ChatInterface(tk.Frame):
         self.font_name = "Segoe UI"
         self.closed = False
 
+        self.conversations = {}
+        self.system_messages = []
+        self.unread_users = set()
+        self.known_users = []
+
         if self.client is None:
             raise ValueError("ChatInterface requires an authenticated ChatsecClient.")
 
@@ -148,7 +152,23 @@ class ChatInterface(tk.Frame):
         )
         self.subtitle_label.pack(anchor="w", pady=(3, 0))
 
-        self.status_label = tk.Label(self.header, text=f"Connecté : {self.username}", anchor="e")
+        self.header_right = tk.Frame(self.header)
+        self.header_right.pack(side="right")
+
+        self.logout_button = tk.Button(
+            self.header_right,
+            text="Déconnexion",
+            command=self.logout,
+            padx=12,
+            pady=6
+        )
+        self.logout_button.pack(side="right", padx=(12, 0))
+
+        self.status_label = tk.Label(
+            self.header_right,
+            text=f"Connecté : {self.username}",
+            anchor="e"
+        )
         self.status_label.pack(side="right")
 
         self.body = tk.Frame(self, padx=22, pady=18)
@@ -160,7 +180,12 @@ class ChatInterface(tk.Frame):
         self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, 20))
         self.sidebar.grid_propagate(False)
 
-        self.users_title = tk.Label(self.sidebar, text="Utilisateurs en ligne", anchor="w", font=("Segoe UI", 11, "bold"))
+        self.users_title = tk.Label(
+            self.sidebar,
+            text="Utilisateurs en ligne",
+            anchor="w",
+            font=("Segoe UI", 11, "bold")
+        )
         self.users_title.pack(fill="x", pady=(0, 8))
 
         self.users_hint = tk.Label(
@@ -182,9 +207,14 @@ class ChatInterface(tk.Frame):
         self.main_panel = tk.Frame(self.body, padx=20, pady=18)
         self.main_panel.grid(row=0, column=1, sticky="nsew")
         self.main_panel.columnconfigure(0, weight=1)
-        self.main_panel.rowconfigure(1, weight=1)
+        self.main_panel.rowconfigure(2, weight=1)
 
-        self.conversation_title = tk.Label(self.main_panel, text="Aucun utilisateur sélectionné", anchor="w", font=("Segoe UI", 14, "bold"))
+        self.conversation_title = tk.Label(
+            self.main_panel,
+            text="Aucun utilisateur sélectionné",
+            anchor="w",
+            font=("Segoe UI", 14, "bold")
+        )
         self.conversation_title.grid(row=0, column=0, sticky="ew", pady=(0, 4))
 
         self.conversation_hint = tk.Label(
@@ -198,7 +228,6 @@ class ChatInterface(tk.Frame):
         self.text_frame.grid(row=2, column=0, sticky="nsew")
         self.text_frame.columnconfigure(0, weight=1)
         self.text_frame.rowconfigure(0, weight=1)
-        self.main_panel.rowconfigure(2, weight=1)
 
         self.text_box = tk.Text(self.text_frame, wrap="word", state="disabled", bd=0, padx=14, pady=14)
         self.text_box.grid(row=0, column=0, sticky="nsew")
@@ -215,14 +244,19 @@ class ChatInterface(tk.Frame):
         self.entry_panel.grid(row=3, column=0, sticky="ew", pady=(16, 0))
         self.entry_panel.columnconfigure(0, weight=1)
 
-        self.message_label = tk.Label(self.entry_panel, text="Message", anchor="w", font=("Segoe UI", 10, "bold"))
+        self.message_label = tk.Label(
+            self.entry_panel,
+            text="Message",
+            anchor="w",
+            font=("Segoe UI", 10, "bold")
+        )
         self.message_label.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
 
         self.entry_field = tk.Entry(self.entry_panel)
         self.entry_field.grid(row=1, column=0, sticky="ew", padx=(0, 12), ipady=9)
         self.entry_field.bind("<Return>", self.send_message_event)
 
-        self.send_button = tk.Button(self.entry_panel, text="Envoyer  ➜", command=self.send_message)
+        self.send_button = tk.Button(self.entry_panel, text="Envoyer ➜", command=self.send_message)
         self.send_button.grid(row=1, column=1, sticky="e", ipadx=14, ipady=7)
 
         self.entry_hint = tk.Label(
@@ -232,7 +266,11 @@ class ChatInterface(tk.Frame):
         )
         self.entry_hint.grid(row=2, column=0, columnspan=2, sticky="w", pady=(10, 0))
 
-        self.footer_label = tk.Label(self.main_panel, text="Messages chiffrés de bout en bout par RSA.", anchor="w")
+        self.footer_label = tk.Label(
+            self.main_panel,
+            text="Messages chiffrés de bout en bout par RSA.",
+            anchor="w"
+        )
         self.footer_label.grid(row=4, column=0, sticky="ew", pady=(14, 0))
 
         self.append_message(
@@ -240,6 +278,22 @@ class ChatInterface(tk.Frame):
             "Bienvenue sur CHATSEC. Sélectionne un utilisateur dans la colonne de gauche, puis écris ton message en bas.",
             "system",
         )
+
+    def _display_user_name(self, username):
+        return f"● {username}" if username in self.unread_users else username
+
+    def refresh_users_listbox(self, preserve_selection=True):
+        users = list(self.known_users)
+        current = self.selected_user if preserve_selection else None
+
+        self.users_list.delete(0, tk.END)
+        for user in users:
+            self.users_list.insert(tk.END, self._display_user_name(user))
+
+        if current in users:
+            index = users.index(current)
+            self.users_list.selection_set(index)
+            self.users_list.activate(index)
 
     def refresh_users(self):
         self.set_status("Actualisation des utilisateurs...")
@@ -254,28 +308,39 @@ class ChatInterface(tk.Frame):
         self.set_status(response.get("message", "Impossible de charger les utilisateurs."), error=True)
 
     def set_users(self, users):
+        self.known_users = list(users)
         previous = self.selected_user
-        self.users_list.delete(0, tk.END)
 
         for user in users:
-            self.users_list.insert(tk.END, user)
+            if user not in self.conversations:
+                self.conversations[user] = []
 
         if previous in users:
-            index = users.index(previous)
-            self.users_list.selection_set(index)
             self.selected_user = previous
         elif users:
-            self.users_list.selection_set(0)
             self.selected_user = users[0]
         else:
             self.selected_user = None
 
+        self.refresh_users_listbox()
         self.update_conversation_title()
+        self.render_conversation()
 
     def on_user_select(self, event=None):
         selection = self.users_list.curselection()
-        self.selected_user = self.users_list.get(selection[0]) if selection else None
+
+        if not selection:
+            self.selected_user = None
+        else:
+            displayed_name = self.users_list.get(selection[0])
+            self.selected_user = displayed_name.replace("● ", "", 1)
+
+        if self.selected_user in self.unread_users:
+            self.unread_users.discard(self.selected_user)
+
+        self.refresh_users_listbox()
         self.update_conversation_title()
+        self.render_conversation()
 
     def update_conversation_title(self):
         if self.selected_user:
@@ -326,7 +391,7 @@ class ChatInterface(tk.Frame):
 
         if response.get("status") == "OK":
             self.entry_field.delete(0, tk.END)
-            self.append_message(f"Moi → {target}", message, "me")
+            self.append_message(f"Moi → {target}", message, "me", target_user=target)
             self.set_status(f"Dernier message envoyé à {time.strftime('%H:%M:%S')}")
             return
 
@@ -342,17 +407,52 @@ class ChatInterface(tk.Frame):
             if event[0] == "users":
                 self.set_users(event[1])
             elif event[0] == "message":
-                self.append_message(event[1], event[2], "them")
+                sender = event[1]
+                message = event[2]
+                self.append_message(sender, message, "them", target_user=sender)
+
+                if sender != self.selected_user:
+                    self.unread_users.add(sender)
+                    self.refresh_users_listbox()
+
             elif event[0] == "disconnect":
                 self.set_status("Connexion serveur interrompue.", error=True)
 
         if not self.closed:
             self.after(120, self.poll_events)
 
-    def append_message(self, sender, message, tag="system"):
+    def append_message(self, sender, message, tag="system", target_user=None):
+        timestamp = time.strftime("%H:%M:%S")
+
+        if tag == "system":
+            self.system_messages.append((timestamp, sender, message, tag))
+        else:
+            if target_user is None:
+                target_user = sender if tag == "them" else self.selected_user
+
+            if not target_user:
+                return
+
+            if target_user not in self.conversations:
+                self.conversations[target_user] = []
+
+            self.conversations[target_user].append((timestamp, sender, message, tag))
+
+        self.render_conversation()
+
+    def render_conversation(self):
         self.text_box.configure(state="normal")
-        self.text_box.insert(tk.END, f"{time.strftime('%H:%M:%S')}  {sender}\n", tag)
-        self.text_box.insert(tk.END, f"{message}\n\n", tag)
+        self.text_box.delete("1.0", tk.END)
+
+        for timestamp, sender, message, tag in self.system_messages:
+            self.text_box.insert(tk.END, f"{timestamp} {sender}\n", tag)
+            self.text_box.insert(tk.END, f"{message}\n\n", tag)
+
+        if self.selected_user and self.selected_user in self.conversations:
+            for timestamp, sender, message, tag in self.conversations[self.selected_user]:
+                self.text_box.insert(tk.END, f"{timestamp} {sender}\n", tag)
+                self.text_box.insert(tk.END, f"{message}\n\n", tag)
+
         self.text_box.see(tk.END)
         self.text_box.configure(state="disabled")
 
@@ -365,10 +465,16 @@ class ChatInterface(tk.Frame):
         self.set_status(f"Journal enregistré : {filename}")
 
     def clear_chat(self):
-        self.text_box.configure(state="normal")
-        self.text_box.delete("1.0", tk.END)
-        self.text_box.configure(state="disabled")
-        self.set_status("Conversation effacée.")
+        if self.selected_user:
+            self.conversations[self.selected_user] = []
+            self.unread_users.discard(self.selected_user)
+            self.refresh_users_listbox()
+            self.render_conversation()
+            self.set_status(f"Conversation avec {self.selected_user} effacée.")
+        else:
+            self.system_messages = []
+            self.render_conversation()
+            self.set_status("Messages système effacés.")
 
     def save_current_window_size(self):
         size = self.master.geometry().split("+")[0]
@@ -429,6 +535,7 @@ class ChatInterface(tk.Frame):
         for frame in (
             self.header,
             self.header_left,
+            self.header_right,
             self.body,
             self.main_panel,
         ):
@@ -500,21 +607,39 @@ class ChatInterface(tk.Frame):
             disabledforeground=colors["muted"],
         )
 
-        for button in (self.refresh_button, self.send_button):
-            button.configure(
-                bg=colors["accent"],
-                fg="#ffffff",
-                activebackground=colors["accent_hover"],
-                activeforeground="#ffffff",
-                relief="flat",
-                bd=0,
-                cursor="hand2",
-            )
+        self.refresh_button.configure(
+            bg=colors["accent"],
+            fg="#000000",
+            activebackground=colors["accent_hover"],
+            activeforeground="#ffffff",
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+        )
+
+        self.send_button.configure(
+            bg=colors["accent"],
+            fg="#000000",
+            activebackground=colors["accent_hover"],
+            activeforeground="#ffffff",
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+        )
+
+        self.logout_button.configure(
+            bg=colors["danger"],
+            fg="#000000",
+            activebackground=colors["accent_hover"],
+            activeforeground="#ffffff",
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+        )
 
     def _run_async(self, work, done):
         def runner():
             result = work()
-
             if not self.closed:
                 self.after(0, lambda: done(result))
 

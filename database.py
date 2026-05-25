@@ -1,7 +1,8 @@
 import sqlite3
 import datetime
+from pathlib import Path
 
-DB_PATH = "chatsec.db"
+DB_PATH = str(Path(__file__).parent / "chatsec.db")
 
 
 def get_connection():
@@ -11,27 +12,40 @@ def get_connection():
 
 
 def init_db():
+    print(f"[DB] Base utilisée : {Path(DB_PATH).resolve()}")
+
     with get_connection() as conn:
         c = conn.cursor()
         c.execute("PRAGMA journal_mode=WAL")
         c.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                username      TEXT    NOT NULL UNIQUE,
-                password_hash TEXT    NOT NULL,
-                public_key    TEXT,
-                mfa_secret    TEXT,
-                created_at    TEXT    NOT NULL
-            )
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            public_key TEXT,
+            mfa_secret TEXT,
+            created_at TEXT NOT NULL
+        )
         """)
+
         c.execute("""
-            CREATE TABLE IF NOT EXISTS logs (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp  TEXT    NOT NULL,
-                level      TEXT    NOT NULL,
-                event      TEXT    NOT NULL,
-                details    TEXT
-            )
+        CREATE TABLE IF NOT EXISTS pending_signups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            mfa_secret TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            level TEXT NOT NULL,
+            event TEXT NOT NULL,
+            details TEXT
+        )
         """)
         c.execute("""
             CREATE TABLE IF NOT EXISTS active_sessions (
@@ -41,6 +55,8 @@ def init_db():
             )
         """)
         c.execute("DELETE FROM active_sessions")
+
+        conn.commit()
 
     print("[DB] Base de données initialisée.")
 
@@ -54,6 +70,7 @@ def log_event(level: str, event: str, details: str = ""):
             "INSERT INTO logs (timestamp, level, event, details) VALUES (?, ?, ?, ?)",
             (timestamp, level, event, details)
         )
+        conn.commit()
 
     print(f"[{level}] {timestamp} | {event} | {details}")
 
@@ -68,7 +85,24 @@ def create_user(username: str, password_hash: str) -> bool:
                 "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
                 (username, password_hash, created_at)
             )
+            conn.commit()
+        return True
 
+    except sqlite3.IntegrityError:
+        return False
+
+
+def create_user_with_mfa(username: str, password_hash: str, mfa_secret: str) -> bool:
+    try:
+        created_at = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+        with get_connection() as conn:
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO users (username, password_hash, mfa_secret, created_at) VALUES (?, ?, ?, ?)",
+                (username, password_hash, mfa_secret, created_at)
+            )
+            conn.commit()
         return True
 
     except sqlite3.IntegrityError:
@@ -81,8 +115,7 @@ def get_user(username: str) -> dict | None:
         c = conn.cursor()
         c.execute("SELECT * FROM users WHERE username = ?", (username,))
         row = c.fetchone()
-
-    return dict(row) if row else None
+        return dict(row) if row else None
 
 
 def update_public_key(username: str, public_key_pem: str):
@@ -92,6 +125,7 @@ def update_public_key(username: str, public_key_pem: str):
             "UPDATE users SET public_key = ? WHERE username = ?",
             (public_key_pem, username)
         )
+        conn.commit()
 
 
 def update_mfa_secret(username: str, secret: str):
@@ -101,6 +135,7 @@ def update_mfa_secret(username: str, secret: str):
             "UPDATE users SET mfa_secret = ? WHERE username = ?",
             (secret, username)
         )
+        conn.commit()
 
 
 def get_all_usernames() -> list[str]:
@@ -144,3 +179,46 @@ def get_session(username: str) -> dict | None:
         c.execute("SELECT * FROM active_sessions WHERE username = ?", (username,))
         row = c.fetchone()
     return dict(row) if row else None
+
+def username_exists_anywhere(username: str) -> bool:
+    with get_connection() as conn:
+        c = conn.cursor()
+
+        c.execute("SELECT 1 FROM users WHERE username = ?", (username,))
+        if c.fetchone():
+            return True
+
+        c.execute("SELECT 1 FROM pending_signups WHERE username = ?", (username,))
+        if c.fetchone():
+            return True
+
+        return False
+
+
+def upsert_pending_signup(username: str, password_hash: str, mfa_secret: str):
+    created_at = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+    with get_connection() as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM pending_signups WHERE username = ?", (username,))
+        c.execute(
+            "INSERT INTO pending_signups (username, password_hash, mfa_secret, created_at) VALUES (?, ?, ?, ?)",
+            (username, password_hash, mfa_secret, created_at)
+        )
+        conn.commit()
+
+
+def get_pending_signup(username: str) -> dict | None:
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("SELECT * FROM pending_signups WHERE username = ?", (username,))
+        row = c.fetchone()
+        return dict(row) if row else None
+
+
+def delete_pending_signup(username: str):
+    with get_connection() as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM pending_signups WHERE username = ?", (username,))
+        conn.commit()
