@@ -15,7 +15,7 @@ def init_db():
         c = conn.cursor()
 
         c.execute("PRAGMA journal_mode=WAL")
-        c.execute("DELETE FROM active_sessions")
+        c.execute("DROP TABLE IF EXISTS active_sessions")
 
         c.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -47,6 +47,7 @@ def init_db():
         )
     """)
 
+    c.execute("DELETE FROM active_sessions")
 
     print("[DB] Base de données initialisée.")
 
