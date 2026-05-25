@@ -27,6 +27,8 @@ from database import (
     create_user_with_mfa,
 )
 
+pending_signups = {}
+
 HOST = "0.0.0.0"
 PORT = 5555
 CERT_FILE = str(Path(__file__).parent / "server.crt")
@@ -153,9 +155,23 @@ def handle_client(conn: ssl.SSLSocket, addr: tuple):
             elif action == "LIST_USERS":
                 _handle_list_users(conn, username)
 
+            elif action == "CHECK_USERNAME":
+                user = get_user(msg.get("username", ""))
+                if user:
+                    send_json(conn, {"status": "TAKEN", "message": "Username déjà pris"})
+                else:
+                    send_json(conn, {"status": "OK", "message": "Username disponible"})
+
+            elif action == "SIGNUP_PREPARE":
+                _handle_signup_prepare(conn, msg)
+
+            elif action == "SIGNUP_CONFIRM":
+                _handle_signup_confirm(conn, msg)
+
             else:
                 send_json(conn, {"status": "ERROR", "message": "Action inconnue"})
                 log_event("WARNING", "ACTION_INCONNUE", f"action={action}, user={username}")
+
 
     except Exception as e:
         log_event("ERROR", "ERREUR_CLIENT", f"user={username}, err={e}")
@@ -377,6 +393,7 @@ def _handle_message(conn, msg, username):
 
     target = msg.get("to", "")
     content = msg.get("content", "")
+    signature = msg.get("signature", "")  # ← ajoute ça
 
     with clients_lock:
         target_conn = connected_clients.get(target)
@@ -385,14 +402,14 @@ def _handle_message(conn, msg, username):
         send_json(target_conn, {
             "action": "MESSAGE",
             "from": username,
-            "content": content
+            "content": content,
+            "signature": signature
         })
         send_json(conn, {"status": "OK"})
         log_event("INFO", "MESSAGE_ROUTE", f"from={username}, to={target}")
     else:
         send_json(conn, {"status": "ERROR", "message": f"{target} n'est pas connecté"})
         log_event("WARNING", "MESSAGE_ECHEC", f"from={username}, to={target} introuvable")
-
 
 def _handle_list_users(conn, username):
     with clients_lock:

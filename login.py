@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from chat import Chatroom
-from client import ChatsecClient, HOST, PORT
+from chatsec_client import ChatsecClient, HOST, PORT
 
 
 class LoginPage:

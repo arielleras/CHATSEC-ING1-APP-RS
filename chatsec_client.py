@@ -114,6 +114,60 @@ class ChatsecClient:
     def list_users(self):
         return self.request({"action": "LIST_USERS"})
 
+    def check_username(self, username):
+        try:
+            self.connect()
+            self._send({"action": "CHECK_USERNAME", "username": username})
+            result = self._recv_response_blocking()
+            return result
+        except OSError as exc:
+            return self._error(f"Impossible de vérifier: {exc}")
+        finally:
+            self.close()
+
+    def signup_prepare(self, username, password):
+        try:
+            self.connect()
+            self._send({"action": "SIGNUP_PREPARE", "username": username, "password": password})
+            return self._recv_response_blocking()
+        except OSError as exc:
+            return self._error(f"Impossible de joindre le serveur: {exc}")
+        finally:
+            self.close()
+
+    def signup_confirm(self, username, otp):
+        try:
+            self.connect()
+            self._send({"action": "SIGNUP_CONFIRM", "username": username, "otp": otp})
+            return self._recv_response_blocking()
+        except OSError as exc:
+            return self._error(f"Impossible de joindre le serveur: {exc}")
+        finally:
+            self.close()
+
+    def get_conversation(self, target):
+        response = self.request({"action": "GET_CONVERSATION", "target": target})
+        if response.get("status") != "OK":
+            return response
+
+        messages = []
+        for msg in response.get("messages", []):
+            decrypted_content = msg["content"]
+            try:
+                if msg["receiver"] == self.username:
+                    decrypted_content = rsa_decrypt(msg["content"], self.private_key).decode("utf-8")
+                else:
+                    decrypted_content = "[message envoyé]"
+            except Exception as exc:
+                decrypted_content = f"[message indechiffrable: {exc}]"
+            messages.append({
+                "sender": msg["sender"],
+                "receiver": msg["receiver"],
+                "content": decrypted_content,
+                "created_at": msg["created_at"]
+            })
+        return {"status": "OK", "messages": messages}
+
     def _cache_peer_key(self, username, public_key_pem):
         """Met en cache la clé publique d'un utilisateur pour vérifier ses signatures."""
         try:
@@ -196,18 +250,8 @@ class ChatsecClient:
         if action == "MESSAGE":
             sender = message.get("from", "?")
             content = message.get("content", "")
-            signature = message.get("signature", "")
             try:
                 decrypted = rsa_decrypt(content, self.private_key).decode("utf-8")
-                # Vérifier la signature si on a la clé publique de l'expéditeur
-                if sender in self.peer_public_keys and signature:
-                    is_valid = self.rsa_manager.verify_signature(
-                        decrypted,
-                        signature,
-                        self.peer_public_keys[sender]
-                    )
-                    if not is_valid:
-                        decrypted = f"[⚠️ Signature invalide] {decrypted}"
             except Exception as exc:
                 decrypted = f"[message indechiffrable: {exc}]"
             self.events.put(("message", sender, decrypted))

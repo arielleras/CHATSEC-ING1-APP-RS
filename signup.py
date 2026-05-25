@@ -6,7 +6,7 @@ from tkinter import ttk
 import qrcode
 from PIL import Image, ImageTk
 
-from client import ChatsecClient, HOST, PORT
+from chatsec_client import ChatsecClient, HOST, PORT
 
 
 class SignupPage:
