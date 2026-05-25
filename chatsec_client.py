@@ -177,7 +177,6 @@ class ChatsecClient:
             self.events.put(("message", sender, decrypted))
             return True
 
-        return False
 
     def _send(self, data):
         raw = json.dumps(data).encode("utf-8")
