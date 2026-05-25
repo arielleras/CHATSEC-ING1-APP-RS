@@ -165,12 +165,15 @@ def handle_client(conn: ssl.SSLSocket, addr: tuple):
 
 def _handle_check_username(conn, msg):
     username = msg.get("username", "").strip()
+    exists = username_exists_anywhere(username)
+
+    print(f"[CHECK_USERNAME] username={username!r} exists={exists}")
 
     if len(username) < 2:
         send_json(conn, {"status": "ERROR", "message": "Nom d'utilisateur trop court."})
         return
 
-    if username_exists_anywhere(username):
+    if exists:
         send_json(conn, {"status": "ERROR", "message": "Nom d'utilisateur déjà pris."})
         return
 
@@ -231,7 +234,7 @@ def _handle_signup_confirm(conn, msg):
         log_event("WARNING", "SIGNUP_CONFIRM_ECHEC", f"user={username}")
         return
 
-    if username_exists_anywhere(username) and not get_user(username) is None:
+    if get_user(username) is not None:
         delete_pending_signup(username)
         send_json(conn, {"status": "ERROR", "message": "Nom d'utilisateur déjà pris."})
         return

@@ -276,10 +276,12 @@ class SignupPage:
             self.show_status(result.get("message", "Code MFA invalide."), error=True)
             return
 
-        self.show_status("Compte créé avec succès. Tu peux maintenant te connecter.")
+        self.show_status("Compte créé avec succès. Redirection vers la connexion...")
         self.confirm_mfa_button.configure(state="disabled")
         self.register_button.configure(state="disabled")
         self.otp_entry.configure(state="disabled")
+
+        self.root.after(1200, self.back_to_login)
 
     def show_qr_code(self, mfa_uri):
         qr = qrcode.QRCode(

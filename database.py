@@ -1,7 +1,8 @@
 import sqlite3
 import datetime
+from pathlib import Path
 
-DB_PATH = "chatsec.db"
+DB_PATH = str(Path(__file__).parent / "chatsec.db")
 
 
 def get_connection():
@@ -11,6 +12,8 @@ def get_connection():
 
 
 def init_db():
+    print(f"[DB] Base utilisée : {Path(DB_PATH).resolve()}")
+
     with get_connection() as conn:
         c = conn.cursor()
 
@@ -77,7 +80,7 @@ def create_user(username: str, password_hash: str) -> bool:
                 (username, password_hash, created_at)
             )
             conn.commit()
-            return True
+        return True
 
     except sqlite3.IntegrityError:
         return False
@@ -94,7 +97,7 @@ def create_user_with_mfa(username: str, password_hash: str, mfa_secret: str) -> 
                 (username, password_hash, mfa_secret, created_at)
             )
             conn.commit()
-            return True
+        return True
 
     except sqlite3.IntegrityError:
         return False
