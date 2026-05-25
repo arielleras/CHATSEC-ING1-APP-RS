@@ -152,7 +152,23 @@ class ChatInterface(tk.Frame):
         )
         self.subtitle_label.pack(anchor="w", pady=(3, 0))
 
-        self.status_label = tk.Label(self.header, text=f"Connecté : {self.username}", anchor="e")
+        self.header_right = tk.Frame(self.header)
+        self.header_right.pack(side="right")
+
+        self.logout_button = tk.Button(
+            self.header_right,
+            text="Déconnexion",
+            command=self.logout,
+            padx=12,
+            pady=6
+        )
+        self.logout_button.pack(side="right", padx=(12, 0))
+
+        self.status_label = tk.Label(
+            self.header_right,
+            text=f"Connecté : {self.username}",
+            anchor="e"
+        )
         self.status_label.pack(side="right")
 
         self.body = tk.Frame(self, padx=22, pady=18)
@@ -519,6 +535,7 @@ class ChatInterface(tk.Frame):
         for frame in (
             self.header,
             self.header_left,
+            self.header_right,
             self.body,
             self.main_panel,
         ):
@@ -590,16 +607,35 @@ class ChatInterface(tk.Frame):
             disabledforeground=colors["muted"],
         )
 
-        for button in (self.refresh_button, self.send_button):
-            button.configure(
-                bg=colors["accent"],
-                fg="#ffffff",
-                activebackground=colors["accent_hover"],
-                activeforeground="#ffffff",
-                relief="flat",
-                bd=0,
-                cursor="hand2",
-            )
+        self.refresh_button.configure(
+            bg=colors["accent"],
+            fg="#000000",
+            activebackground=colors["accent_hover"],
+            activeforeground="#ffffff",
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+        )
+
+        self.send_button.configure(
+            bg=colors["accent"],
+            fg="#000000",
+            activebackground=colors["accent_hover"],
+            activeforeground="#ffffff",
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+        )
+
+        self.logout_button.configure(
+            bg=colors["danger"],
+            fg="#000000",
+            activebackground=colors["accent_hover"],
+            activeforeground="#ffffff",
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+        )
 
     def _run_async(self, work, done):
         def runner():
