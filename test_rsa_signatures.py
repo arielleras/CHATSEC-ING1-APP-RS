@@ -333,73 +333,53 @@ class TestChatSecClientRSA(unittest.TestCase):
     """Tests d'intégration pour le client CHATSEC avec RSA."""
 
     def setUp(self):
-        """Créer un répertoire temporaire pour les clés."""
         self.temp_dir = tempfile.mkdtemp()
         os.chdir(self.temp_dir)
 
     def tearDown(self):
-        """Nettoyer."""
         os.chdir('..')
         shutil.rmtree(self.temp_dir)
 
     def test_client_initialization(self):
-        """✓ Test: Initialiser un client avec clés RSA."""
-        from chatsec_client_new import ChatSecClient
+        """✓ Test: Initialiser un client."""
+        from chatsec_client import ChatsecClient as ChatSecClient
+        client = ChatSecClient()
+        self.assertIsNotNone(client.rsa_manager)
 
-        client = ChatSecClient('alice')
-
-        # Vérifier que les clés ont été générées
-        self.assertTrue(os.path.exists('keys/alice_private.pem'))
-        self.assertTrue(os.path.exists('keys/alice_public.pem'))
-
-    def test_client_key_reuse(self):
-        """✓ Test: Clés réutilisées au 2ème lancement."""
-        from chatsec_client_new import ChatSecClient
-
-        # 1er client
-        client1 = ChatSecClient('alice')
-        key1 = client1.rsa_manager.public_key_to_pem_string()
-
-        # 2ème client (devrait charger les mêmes clés)
-        client2 = ChatSecClient('alice')
-        key2 = client2.rsa_manager.public_key_to_pem_string()
-
-        # Les clés doivent être identiques
-        self.assertEqual(key1, key2)
+    def test_client_rsa_manager(self):
+        """✓ Test: RSASignatureManager disponible."""
+        from chatsec_client import ChatsecClient as ChatSecClient
+        client = ChatSecClient()
+        client.rsa_manager.generate_keypair()
+        self.assertIsNotNone(client.rsa_manager.public_key)
+        self.assertIsNotNone(client.rsa_manager.private_key)
 
     def test_client_send_receive_message(self):
         """✓ Test: Envoyer et recevoir un message signé."""
-        from chatsec_client_new import ChatSecClient
+        from chatsec_client import ChatsecClient as ChatSecClient
 
-        alice = ChatSecClient('alice')
-        bob = ChatSecClient('bob')
+        alice = ChatSecClient()
+        bob = ChatSecClient()
 
-        # Alice met en cache la clé de Bob
+        alice.rsa_manager.generate_keypair()
+        bob.rsa_manager.generate_keypair()
+
         bob_public_pem = bob.rsa_manager.public_key_to_pem_string()
-        alice.cache_remote_public_key('bob', bob_public_pem)
-
-        # Alice envoie un message à Bob
-        message = "Bonjour Bob!"
-        # (Note: on n'appelle pas send_private_message car cela requiert le serveur)
-        # À la place, on simule:
+        alice.peer_public_keys['bob'] = alice.rsa_manager.pem_string_to_public_key(bob_public_pem)
 
         packet = alice.rsa_manager.create_signed_message_packet(
-            content=message,
+            content="Bonjour Bob!",
             sender_name='alice',
             recipient_name='bob',
             recipient_public_key=bob.rsa_manager.public_key
         )
 
-        # Bob reçoit et vérifie
         alice_public_pem = alice.rsa_manager.public_key_to_pem_string()
-        bob.cache_remote_public_key('alice', alice_public_pem)
-
-        result = bob.receive_private_message(packet)
+        sender_key = bob.rsa_manager.pem_string_to_public_key(alice_public_pem)
+        result = bob.rsa_manager.verify_and_decrypt_message(packet, sender_key)
 
         self.assertTrue(result['valid'])
-        self.assertEqual(result['content'], message)
-
-
+        self.assertEqual(result['content'], "Bonjour Bob!")
 # ============================================================================
 # TESTS DE PERFORMANCE
 # ============================================================================

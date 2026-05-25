@@ -3,6 +3,7 @@ import queue
 import socket
 import ssl
 import threading
+from rsa_signature import RSASignatureManager
 
 from Crypto.PublicKey import RSA
 
@@ -29,6 +30,8 @@ class ChatsecClient:
         self.events = queue.Queue()
         self._send_lock = threading.Lock()
         self._request_lock = threading.Lock()
+        self.rsa_manager = RSASignatureManager(key_size=2048)
+        self.peer_public_keys = {}
 
     def signup(self, username, password):
         try:
@@ -68,6 +71,8 @@ class ChatsecClient:
                 .export_key("PEM")
                 .decode("utf-8")
             )
+
+            self.rsa_manager.generate_keypair()
 
             self._send({
                 "action": "UPLOAD_KEY",
@@ -109,13 +114,34 @@ class ChatsecClient:
     def list_users(self):
         return self.request({"action": "LIST_USERS"})
 
+    def _cache_peer_key(self, username, public_key_pem):
+        """Met en cache la clé publique d'un utilisateur pour vérifier ses signatures."""
+        try:
+            key = self.rsa_manager.pem_string_to_public_key(public_key_pem)
+            self.peer_public_keys[username] = key
+        except Exception:
+            pass
+
     def send_message(self, target, message):
         key_response = self.request({"action": "GET_KEY", "target": target})
         if key_response.get("status") != "OK":
             return key_response
 
+        # Mettre en cache la clé publique pour vérifier les signatures
+        self._cache_peer_key(target, key_response["public_key"])
+
+        # Chiffrement RSA-OAEP
         encrypted = rsa_encrypt(message, key_response["public_key"]).decode("utf-8")
-        return self.request({"action": "MESSAGE", "to": target, "content": encrypted})
+
+        # Signature RSA
+        signature = self.rsa_manager.sign_message(message)
+
+        return self.request({
+            "action": "MESSAGE",
+            "to": target,
+            "content": encrypted,
+            "signature": signature
+        })
 
     def request(self, payload, timeout=6):
         if not self.sock:
@@ -170,8 +196,18 @@ class ChatsecClient:
         if action == "MESSAGE":
             sender = message.get("from", "?")
             content = message.get("content", "")
+            signature = message.get("signature", "")
             try:
                 decrypted = rsa_decrypt(content, self.private_key).decode("utf-8")
+                # Vérifier la signature si on a la clé publique de l'expéditeur
+                if sender in self.peer_public_keys and signature:
+                    is_valid = self.rsa_manager.verify_signature(
+                        decrypted,
+                        signature,
+                        self.peer_public_keys[sender]
+                    )
+                    if not is_valid:
+                        decrypted = f"[⚠️ Signature invalide] {decrypted}"
             except Exception as exc:
                 decrypted = f"[message indechiffrable: {exc}]"
             self.events.put(("message", sender, decrypted))
