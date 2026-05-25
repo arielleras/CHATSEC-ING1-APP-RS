@@ -204,6 +204,12 @@ def _handle_login(conn, msg, addr) -> str | None:
 
     user = get_user(username)
 
+    # Vérification mot de passe bcrypt
+    if not user or not bcrypt.checkpw(password.encode(), user["password_hash"].encode()):
+        send_json(conn, {"status": "ERROR", "message": "Identifiants incorrects"})
+        log_event("WARNING", "LOGIN_ECHEC", f"user={username}, addr={addr}")
+        return None
+
     mfa_secret = user.get("mfa_secret")
 
     if not mfa_secret:
@@ -215,7 +221,6 @@ def _handle_login(conn, msg, addr) -> str | None:
         log_event("WARNING", "MFA_ECHEC", f"user={username}, addr={addr}")
         return None
 
-    """Génère un identifiant unique de session"""
     session_id = str(uuid.uuid4())
     if not create_session(username, session_id):
         send_json(conn, {
@@ -223,8 +228,7 @@ def _handle_login(conn, msg, addr) -> str | None:
             "message": "Cet utilisateur est déjà connecté sur un autre appareil."
         })
         log_event("WARNING", "LOGIN_DOUBLE_SESSION", f"user={username}, addr={addr}")
-        return None, None
-
+        return None
 
     with clients_lock:
         connected_clients[username] = conn
@@ -234,7 +238,6 @@ def _handle_login(conn, msg, addr) -> str | None:
     _broadcast_user_list()
 
     return username
-
 
 def _handle_upload_key(conn, msg, username):
     """Le client dépose sa clé publique RSA sur le serveur."""

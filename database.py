@@ -13,10 +13,7 @@ def get_connection():
 def init_db():
     with get_connection() as conn:
         c = conn.cursor()
-
         c.execute("PRAGMA journal_mode=WAL")
-        c.execute("DROP TABLE IF EXISTS active_sessions")
-
         c.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,7 +24,6 @@ def init_db():
                 created_at    TEXT    NOT NULL
             )
         """)
-
         c.execute("""
             CREATE TABLE IF NOT EXISTS logs (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,17 +33,14 @@ def init_db():
                 details    TEXT
             )
         """)
-
-    #Connexion unique par user
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS active_sessions (
-            username   TEXT PRIMARY KEY,
-            session_id TEXT NOT NULL,
-            started_at TEXT NOT NULL
-        )
-    """)
-
-    c.execute("DELETE FROM active_sessions")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS active_sessions (
+                username   TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                started_at TEXT NOT NULL
+            )
+        """)
+        c.execute("DELETE FROM active_sessions")
 
     print("[DB] Base de données initialisée.")
 
