@@ -1,4 +1,3 @@
-import json
 import socket
 import ssl
 import threading
@@ -9,11 +8,6 @@ from pathlib import Path
 
 import bcrypt
 import pyotp
-from database import (
-    init_db, log_event, get_user, update_public_key,
-    get_all_usernames, update_mfa_secret,
-    create_session, delete_session
-)
 
 from database import (
     init_db,
@@ -25,12 +19,16 @@ from database import (
     get_pending_signup,
     delete_pending_signup,
     create_user_with_mfa,
+    create_session,
+    delete_session,
 )
+
+from logger_config import setup_logger
+
+logger = setup_logger()
 
 from dotenv import load_dotenv
 import os
-
-pending_signups = {}
 
 load_dotenv()
 
@@ -130,6 +128,7 @@ def _reset_attempts(username: str):
 def handle_client(conn: ssl.SSLSocket, addr: tuple):
     username = None
     log_event("INFO", "CONNEXION_ENTREE", f"addr={addr}")
+    logger.info(f"CONNEXION_ENTREE | addr={addr}")
 
     try:
         while True:
@@ -163,19 +162,6 @@ def handle_client(conn: ssl.SSLSocket, addr: tuple):
             elif action == "LIST_USERS":
                 _handle_list_users(conn, username)
 
-            elif action == "CHECK_USERNAME":
-                user = get_user(msg.get("username", ""))
-                if user:
-                    send_json(conn, {"status": "TAKEN", "message": "Username déjà pris"})
-                else:
-                    send_json(conn, {"status": "OK", "message": "Username disponible"})
-
-            elif action == "SIGNUP_PREPARE":
-                _handle_signup_prepare(conn, msg)
-
-            elif action == "SIGNUP_CONFIRM":
-                _handle_signup_confirm(conn, msg)
-
             else:
                 send_json(conn, {"status": "ERROR", "message": "Action inconnue"})
                 log_event("WARNING", "ACTION_INCONNUE", f"action={action}, user={username}")
@@ -183,6 +169,7 @@ def handle_client(conn: ssl.SSLSocket, addr: tuple):
 
     except Exception as e:
         log_event("ERROR", "ERREUR_CLIENT", f"user={username}, err={e}")
+        logger.error(f"ERREUR_CLIENT | user={username}, err={e}")
 
     finally:
         # Chercher le username par socket si non défini
@@ -198,7 +185,7 @@ def handle_client(conn: ssl.SSLSocket, addr: tuple):
                 connected_clients.pop(username, None)
             delete_session(username)
             log_event("INFO", "DECONNEXION", f"user={username}, addr={addr}")
-            _broadcast_user_list()
+            logger.info(f"DECONNEXION | user={username}, addr={addr}")
 
             _broadcast_user_list()
         conn.close()
@@ -208,7 +195,7 @@ def _handle_check_username(conn, msg):
     username = msg.get("username", "").strip()
     exists = username_exists_anywhere(username)
 
-    print(f"[CHECK_USERNAME] username={username!r} exists={exists}")
+    logger.info(f"CHECK_USERNAME | username={username} exists={exists}")
 
     if len(username) < 2:
         send_json(conn, {"status": "ERROR", "message": "Nom d'utilisateur trop court."})
@@ -253,6 +240,7 @@ def _handle_signup_prepare(conn, msg):
         "mfa_uri": mfa_uri
     })
     log_event("INFO", "SIGNUP_PREPARE_OK", f"user={username}")
+    logger.info(f"SIGNUP_PREPARE_OK | user={username}")
 
 
 def _handle_signup_confirm(conn, msg):
@@ -292,6 +280,7 @@ def _handle_signup_confirm(conn, msg):
         "message": "Compte créé avec succès."
     })
     log_event("INFO", "SIGNUP_CONFIRM_OK", f"user={username}")
+    logger.info(f"SIGNUP_CONFIRM_OK | user={username}")
 
 
 def _handle_login(conn, msg, addr) -> str | None:
@@ -317,6 +306,7 @@ def _handle_login(conn, msg, addr) -> str | None:
         if is_blocked:
             send_json(conn, {"status": "ERROR", "message": "Compte bloqué pendant 1 minute."})
             log_event("WARNING", "LOGIN_BLOQUE", f"user={username}, addr={addr}")
+            logger.warning(f"LOGIN_BLOQUE | user={username}, addr={addr}")
             return None
 
         remaining = MAX_LOGIN_ATTEMPTS - _get_attempt_count(username)
@@ -325,6 +315,7 @@ def _handle_login(conn, msg, addr) -> str | None:
             "message": f"Identifiants incorrects. Il reste {remaining} tentative(s)."
         })
         log_event("WARNING", "LOGIN_ECHEC", f"user={username}, addr={addr}")
+        logger.warning(f"LOGIN_ECHEC | user={username}, addr={addr}")
         return None
 
     mfa_secret = user.get("mfa_secret")
@@ -365,6 +356,7 @@ def _handle_login(conn, msg, addr) -> str | None:
 
     send_json(conn, {"status": "OK", "message": "Connecté"})
     log_event("INFO", "LOGIN_OK", f"user={username}, addr={addr}")
+    logger.info(f"LOGIN_OK | user={username}, addr={addr}")
     _broadcast_user_list()
 
     return username
@@ -415,9 +407,11 @@ def _handle_message(conn, msg, username):
         })
         send_json(conn, {"status": "OK"})
         log_event("INFO", "MESSAGE_ROUTE", f"from={username}, to={target}")
+        logger.info(f"MESSAGE_ROUTE | from={username}, to={target}")
     else:
         send_json(conn, {"status": "ERROR", "message": f"{target} n'est pas connecté"})
         log_event("WARNING", "MESSAGE_ECHEC", f"from={username}, to={target} introuvable")
+        logger.warning(f"MESSAGE_ECHEC | from={username}, to={target}")
 
 def _handle_list_users(conn, username):
     with clients_lock:
@@ -450,7 +444,7 @@ def start_server():
     raw_sock.bind((HOST, PORT))
     raw_sock.listen(10)
 
-    print(f"[CHATSEC] Serveur en écoute sur {HOST}:{PORT} (TLS)")
+    logger.info(f"SERVEUR_ECOUTE | {HOST}:{PORT} TLS actif")
 
     tls_listener = context.wrap_socket(raw_sock, server_side=True)
 
@@ -460,9 +454,11 @@ def start_server():
                 conn, addr = tls_listener.accept()
             except ssl.SSLError as e:
                 log_event("WARNING", "TLS_HANDSHAKE_ECHEC", str(e))
+                logger.warning(f"TLS_HANDSHAKE_ECHEC | {e}")
                 continue
             except OSError as e:
                 log_event("ERROR", "ACCEPT_ECHEC", str(e))
+                logger.error(f"ACCEPT_ECHEC | {e}")
                 continue
 
             log_event("INFO", "NOUVELLE_CONNEXION", f"addr={addr}")
@@ -471,7 +467,7 @@ def start_server():
 
     except KeyboardInterrupt:
         log_event("INFO", "ARRET", "Serveur arrêté manuellement")
-        print("\n[CHATSEC] Serveur arrêté.")
+        logger.info("SERVEUR_ARRETE")
     finally:
         tls_listener.close()
 
