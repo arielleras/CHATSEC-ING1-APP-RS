@@ -1,16 +1,22 @@
+# Python
 __pycache__/
 *.pyc
 
-chatsec.db
-*.db-shm
-*.db-wal
-
-server.key
-server.crt
-
-.env
-
-*.log
-
-.vscode/
+# IDE
 .idea/
+.vscode/
+
+# Base SQLite locale
+chatsec.db
+chatsec.db-shm
+chatsec.db-wal
+
+# Certificat et clé TLS générés localement
+server.crt
+server.key
+
+# Environnement virtuel
+.venv/
+
+# Logs éventuels
+*.log
