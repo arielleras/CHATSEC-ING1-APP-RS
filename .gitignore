@@ -1,20 +1,16 @@
-# Cache Python
 __pycache__/
 *.pyc
 
-# Base de données SQLite
 chatsec.db
+*.db-shm
+*.db-wal
 
-# Clés et certificats TLS
 server.key
 server.crt
 
-# Variables d'environnement
 .env
 
-# Logs
 *.log
 
-# Fichiers IDE
 .vscode/
 .idea/
