@@ -4,16 +4,23 @@ import socket
 import ssl
 import threading
 from rsa_signature import RSASignatureManager
+from dotenv import load_dotenv
+import os
 
 from Crypto.PublicKey import RSA
 
 from encryption_decryption import rsa_decrypt, rsa_encrypt
 
 from pathlib import Path
+load_dotenv()
 
-HOST = "127.0.0.1"
-PORT = 5555
-SERVER_CERT = str(Path(__file__).parent / "server.crt")
+HOST = os.getenv("HOST", "127.0.0.1")
+PORT = int(os.getenv("PORT", 5555))
+
+SERVER_CERT = str(
+    Path(__file__).parent /
+    os.getenv("CERT_FILE", "server.crt")
+)
 
 
 class ChatsecClient:
@@ -32,16 +39,6 @@ class ChatsecClient:
         self._request_lock = threading.Lock()
         self.rsa_manager = RSASignatureManager(key_size=2048)
         self.peer_public_keys = {}
-
-    def signup(self, username, password):
-        try:
-            self.connect()
-            self._send({"action": "SIGNUP", "username": username, "password": password})
-            return self._recv_response_blocking()
-        except OSError as exc:
-            return self._error(f"Impossible de joindre le serveur: {exc}")
-        finally:
-            self.close()
 
     def login(self, username, password, otp):
         try:
@@ -106,6 +103,9 @@ class ChatsecClient:
     
     def connect(self):
         context = ssl.create_default_context(cafile=self.cert_file)
+
+        # Désactivé pour certificat local self-signed
+
         context.check_hostname = False
         raw_sock = socket.create_connection((self.host, self.port), timeout=5)
         self.sock = context.wrap_socket(raw_sock, server_hostname="localhost")

@@ -27,18 +27,26 @@ from database import (
     create_user_with_mfa,
 )
 
+from dotenv import load_dotenv
+import os
+
 pending_signups = {}
 
-HOST = "0.0.0.0"
-PORT = 5555
-CERT_FILE = str(Path(__file__).parent / "server.crt")
-KEY_FILE = str(Path(__file__).parent / "server.key")
+load_dotenv()
+
+HOST = os.getenv("HOST", "0.0.0.0")
+PORT = int(os.getenv("PORT", 5555))
+
+CERT_FILE = str(Path(__file__).parent / os.getenv("CERT_FILE", "server.crt"))
+KEY_FILE = str(Path(__file__).parent / os.getenv("KEY_FILE", "server.key"))
+
+DB_NAME = os.getenv("DB_NAME", "chatsec.db")
+
+MAX_LOGIN_ATTEMPTS = int(os.getenv("MAX_LOGIN_ATTEMPTS", 5))
+LOCK_TIME_SECONDS = int(os.getenv("LOCK_TIME_SECONDS", 60))
 
 connected_clients: dict[str, ssl.SSLSocket] = {}
 clients_lock = threading.Lock()
-
-MAX_LOGIN_ATTEMPTS = 5
-LOCK_TIME_SECONDS = 60
 
 AUTH_STATE = {
     "attempt_counts": {},

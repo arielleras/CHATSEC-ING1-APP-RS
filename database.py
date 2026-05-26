@@ -1,8 +1,14 @@
 import sqlite3
 import datetime
+import os
 from pathlib import Path
 
-DB_PATH = str(Path(__file__).parent / "chatsec.db")
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DB_NAME = os.getenv("DB_NAME", "chatsec.db")
+DB_PATH = str(Path(__file__).parent / DB_NAME)
 
 
 def get_connection():
