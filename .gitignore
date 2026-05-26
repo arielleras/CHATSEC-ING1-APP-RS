@@ -15,8 +15,12 @@ chatsec.db-wal
 server.crt
 server.key
 
+# Variables d'environnement
+.env
+
 # Environnement virtuel
 .venv/
+venv/
 
-# Logs éventuels
+# Logs
 *.log
