@@ -1,165 +1,250 @@
-# CHATSEC - Secure Chatroom
+# CHATSEC — Secure Chat Application
 
-CHATSEC est une application de messagerie sécurisée en Python. La version actuelle du projet n'utilise plus RabbitMQ ni LDAP pour le flux principal : elle repose sur un serveur TCP/TLS local, une base SQLite et une interface client Tkinter remise au propre pour un usage sous Windows 11.
+## Description
+
+CHATSEC est une application de messagerie sécurisée développée en Python dans le cadre d’un projet de cybersécurité.
+
+L’application permet à plusieurs utilisateurs de communiquer via un serveur sécurisé TLS tout en utilisant :
+- une authentification forte MFA/TOTP
+- le chiffrement RSA-OAEP des messages
+- des signatures RSA
+- le hachage bcrypt des mots de passe
+
+Le projet repose sur une architecture client/serveur avec interface graphique Tkinter.
+
+---
 
 ## Fonctionnalités
 
-- Inscription et connexion utilisateur via le serveur local.
-- Stockage des comptes dans SQLite avec hash de mot de passe `bcrypt`.
-- Transport client/serveur en TLS avec certificat auto-signé.
-- Messages privés chiffrés côté client avec RSA.
-- Liste des utilisateurs connectés en temps réel.
-- Interface client compatible Windows 11 : écrans connexion/inscription, thème sombre, zone de chat, menu, sauvegarde du journal et réglage de la taille de fenêtre.
+- Authentification utilisateur
+- MFA avec TOTP
+- Chiffrement RSA-OAEP des messages
+- Signatures RSA
+- Communication sécurisée via TLS
+- Gestion des sessions actives
+- Liste des utilisateurs connectés
+- Protection anti brute-force
+- Base de données SQLite
+- Journalisation des événements de sécurité
 
-## Interface Windows 11
+---
 
-L'interface principale est lancée par `main.py`. Elle conserve le parcours classique du projet, mais avec une présentation plus moderne et plus claire :
+## Technologies utilisées
 
-- splash screen au démarrage ;
-- écran de connexion séparé ;
-- écran d'inscription séparé ;
-- interface de chat avec liste des utilisateurs connectés à gauche ;
-- zone de conversation centrale ;
-- champ de saisie et bouton d'envoi visibles en bas ;
-- menus pour sauvegarder le journal, effacer la conversation, changer le thème, changer la police et gérer la taille de fenêtre.
+### Langage
+- Python 3
 
-Le thème par défaut est sombre pour mieux coller à l'esthétique Windows 11 et rester lisible pendant les tests.
+### Interface graphique
+- Tkinter
 
-## Architecture
+### Réseau / sécurité
+- socket
+- ssl/TLS
+- bcrypt
+- pyotp
+- pycryptodome
+
+### Base de données
+- SQLite3
+
+### Configuration
+- python-dotenv
+
+---
+
+## Architecture du projet
 
 ```text
-Client Tkinter
-  main.py -> login.py / signup.py -> chat.py -> interface.py
-        |
-        | TLS + JSON framed messages
-        v
-Serveur CHATSEC
-  server.py -> database.py -> chatsec.db
+CHATSEC/
+│
+├── main.py
+├── server.py
+├── chatsec_client.py
+├── database.py
+├── encryption_decryption.py
+├── rsa_signature.py
+│
+├── interface.py
+├── login.py
+├── signup.py
+│
+├── generate_cert.py
+├── requirements.txt
+├── .env.example
+├── .gitignore
 ```
 
-Fichiers principaux :
+---
 
-- `server.py` : serveur TCP/TLS sur `127.0.0.1:5555`.
-- `database.py` : création et accès à la base SQLite `chatsec.db`.
-- `chatsec_client.py` : client réseau commun aux interfaces.
-- `main.py` : lanceur principal avec splash screen puis interface Windows 11.
-- `login.py` / `signup.py` : authentification et création de compte.
-- `interface.py` : interface de chat principale.
-- `chatsec_gui.py` : client Tkinter direct, utile pour tester rapidement une deuxième fenêtre.
-- `generate_cert.py` : génération de `server.crt` et `server.key`.
+## Architecture de sécurité
 
-## Prérequis Windows 11
+### TLS
 
-- Windows 11.
-- Python 3.12 ou plus récent installé et disponible dans PowerShell avec la commande `python`.
-- Les dépendances Python du fichier `requirements.txt`.
-
-Vérifier Python :
-
-```powershell
-python --version
-```
-
-Installer les dépendances :
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-Option recommandée si tu veux isoler le projet :
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-```
-
-## Premier lancement
-
-Depuis la racine du projet :
-
-```powershell
-cd C:\Users\vidav\Documents\EFREI\Ing1\Rattrapage_UE\CHATSEC-ING1-APP-RS
-```
-
-Si les fichiers TLS n'existent pas encore, génère le certificat serveur :
-
-```powershell
-python generate_cert.py
-```
-
-Cette commande crée :
-
+Les communications client/serveur sont sécurisées via TLS grâce à :
 - `server.crt`
 - `server.key`
 
-## Lancer le serveur
+Le serveur utilise :
 
-Ouvre un premier terminal PowerShell dans le dossier du projet, puis lance :
-
-```powershell
-python server.py
+```python
+ssl.PROTOCOL_TLS_SERVER
 ```
 
-Le serveur écoute sur :
+### Authentification
 
-```text
-127.0.0.1:5555
+Les mots de passe ne sont jamais stockés en clair.
+
+Ils sont :
+- hachés avec bcrypt
+- stockés dans SQLite
+
+### MFA / TOTP
+
+L’application utilise :
+- `pyotp`
+- QR Code MFA
+- Google Authenticator compatible
+
+### Chiffrement des messages
+
+Les messages sont :
+- chiffrés avec RSA-OAEP
+- déchiffrés côté client
+
+### Signature des messages
+
+Chaque message peut être signé via RSA afin de :
+- vérifier l’intégrité
+- vérifier l’authenticité
+
+### Protection anti brute-force
+
+Le serveur :
+- limite le nombre de tentatives de connexion
+- bloque temporairement les comptes après plusieurs échecs
+
+Configuration via `.env` :
+
+```env
+MAX_LOGIN_ATTEMPTS=5
+LOCK_TIME_SECONDS=60
 ```
 
-Garde ce terminal ouvert pendant l'utilisation de l'application.
+---
 
-## Lancer l'interface client principale
+## Installation
 
-Ouvre un deuxième terminal PowerShell dans le même dossier, puis lance :
+### 1. Cloner le dépôt
 
-```powershell
-python main.py
+```bash
+git clone https://github.com/arielleras/CHATSEC-ING1-APP-RS.git
+cd CHATSEC-ING1-APP-RS
 ```
 
-Ce lanceur affiche le splash screen, puis l'interface Windows 11 de connexion/inscription. Après connexion, l'interface de chat s'ouvre automatiquement.
+### 2. Créer un environnement virtuel
 
-## Lancer plusieurs clients
+#### Windows
 
-Pour tester une conversation, lance une deuxième interface client dans un autre terminal :
-
-```powershell
-python main.py
+```bash
+python -m venv .venv
+.venv\Scripts\activate
 ```
 
-Tu peux aussi ouvrir le client direct, plus simple pour les tests rapides :
+#### Linux / macOS
 
-```powershell
-python chatsec_gui.py
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
-Exemple de test :
+### 3. Installer les dépendances
 
-1. Terminal 1 : `python server.py`
-2. Terminal 2 : `python main.py`
-3. Terminal 3 : `python main.py`
-4. Crée ou connecte deux comptes différents.
-5. Sélectionne l'autre utilisateur dans la liste des connectés.
-6. Envoie un message.
-
-## Commandes utiles
-
-Vérifier que les fichiers Python compilent :
-
-```powershell
-python -m py_compile server.py main.py login.py signup.py chat.py interface.py chatsec_client.py
+```bash
+pip install -r requirements.txt
 ```
 
-Réinitialiser les certificats TLS :
+---
 
-```powershell
-Remove-Item server.crt, server.key
+## Configuration
+
+Créer un fichier `.env` à la racine du projet :
+
+```env
+HOST=127.0.0.1
+PORT=5555
+
+CERT_FILE=server.crt
+KEY_FILE=server.key
+
+DB_NAME=chatsec.db
+
+MAX_LOGIN_ATTEMPTS=5
+LOCK_TIME_SECONDS=60
+```
+
+---
+
+## Génération du certificat TLS
+
+Exécuter :
+
+```bash
 python generate_cert.py
 ```
 
-Réinitialiser la base locale :
+Cela génère :
+- `server.crt`
+- `server.key`
 
-```powershell
-Remove-Item chatsec.db
+Ces fichiers sont ignorés par Git via `.gitignore`.
+
+---
+
+## Lancement du serveur
+
+```bash
 python server.py
 ```
+
+---
+
+## Lancement du client
+
+```bash
+python main.py
+```
+
+---
+
+## Structure de la base de données
+
+### Tables principales
+
+#### `users`
+
+Stocke :
+- les utilisateurs
+- les mots de passe hachés
+- les clés publiques RSA
+- les secrets MFA
+
+#### `pending_signups`
+
+Stocke temporairement :
+- les inscriptions en attente
+- les secrets MFA avant validation
+
+#### `logs`
+
+Stocke :
+- les événements de sécurité
+- les connexions
+- les erreurs
+- les actions serveur
+
+#### `active_sessions`
+
+Stocke :
+- les sessions actives
+- les utilisateurs connectés
+- les identifiants de session
